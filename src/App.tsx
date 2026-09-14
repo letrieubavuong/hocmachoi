@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GameRoom, Player, Quiz, ChibiCustomization } from './types';
+import { GameRoom, Player, Quiz, ChibiCustomization, PowerUpType } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
 import { realtime } from './services/realtime';
@@ -26,7 +26,8 @@ import {
   Flame,
   Swords,
   RotateCcw,
-  BookOpen,
+  Gift,
+  Zap,
 } from 'lucide-react';
 
 export function App() {
@@ -42,8 +43,8 @@ export function App() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [showCustomizer, setShowCustomizer] = useState(true);
 
-  // Battle attack modal state
-  const [showAttackModal, setShowAttackModal] = useState(false);
+  // Battle attack / powerup modal state
+  const [showPowerUpModal, setShowPowerUpModal] = useState(false);
 
   // Quiz Creator & Deploy Guide Modals
   const [showQuizCreator, setShowQuizCreator] = useState(false);
@@ -71,9 +72,9 @@ export function App() {
         const syncedPlayer = updatedRoom.players[player.id];
         setPlayer(syncedPlayer);
 
-        // Auto trigger attack card modal if earned
-        if (syncedPlayer.attackCardReady && updatedRoom.phase === 'QUESTION') {
-          setShowAttackModal(true);
+        // Auto trigger power-up card modal if unlocked
+        if (syncedPlayer.unlockedPowerUp && updatedRoom.phase === 'QUESTION') {
+          setShowPowerUpModal(true);
         }
       }
     });
@@ -104,7 +105,6 @@ export function App() {
       streak: 0,
       shieldActive: false,
       shieldCount: 0,
-      attackCardReady: false,
       isReady: true,
       joinedAt: Date.now(),
     };
@@ -155,11 +155,11 @@ export function App() {
     if (updatedRoom) setRoom(updatedRoom);
   };
 
-  // Execute Player Attack Action
-  const handleExecuteAttack = (targetId: string) => {
+  // Execute Player Power-Up Action
+  const handleExecutePowerUp = (targetId: string, powerUpType: PowerUpType) => {
     if (!room || !player) return null;
-    const result = realtime.executeAttack(room.roomCode, player.id, targetId);
-    setShowAttackModal(false);
+    const result = realtime.executePowerUp(room.roomCode, player.id, targetId, powerUpType);
+    setShowPowerUpModal(false);
     return result;
   };
 
@@ -209,7 +209,7 @@ export function App() {
         <div className="w-full max-w-4xl text-center my-6 z-10 space-y-4">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-600/20 border border-purple-500/40 text-purple-300 font-bold text-xs">
             <Sparkles className="w-4 h-4 text-yellow-400 animate-spin" />
-            <span>Nền tảng Quiz Game Chibi Đấu Trường Thời Gian Thực</span>
+            <span>Nền tảng Quiz Game Chibi Đấu Trường Rank Liên Quân</span>
           </div>
 
           <h1 className="text-4xl md:text-6xl font-black tracking-tight leading-tight text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 drop-shadow-lg">
@@ -217,7 +217,7 @@ export function App() {
           </h1>
 
           <p className="text-base md:text-lg text-slate-300 max-w-2xl mx-auto font-medium">
-            Quét mã QR vào phòng ngay lập tức. Tự tạo nhân vật Chibi nhún nhảy sảnh chờ, tích chuỗi đúng để cướp điểm hoặc dùng khiên bảo vệ!
+            Quét mã QR vào phòng ngay lập tức. Đua tốc độ trả lời câu hỏi, mở rương may mắn, đóng băng đối thủ & leo Rank Liên Quân Đấu Trường!
           </p>
         </div>
 
@@ -268,7 +268,7 @@ export function App() {
               </div>
               <h2 className="text-2xl font-black text-white">Dành Cho Giáo Viên (Host)</h2>
               <p className="text-xs text-slate-400">
-                Chọn bộ đề câu hỏi sẵn có hoặc tự soạn câu hỏi mới để làm chủ phòng thi đấu!
+                Hỗ trợ nhập trực tiếp file .tex (gói ex_test chuẩn Việt Nam) hoặc chọn bộ đề có sẵn!
               </p>
 
               <div>
@@ -295,7 +295,7 @@ export function App() {
                 onClick={() => setShowQuizCreator(true)}
                 className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors"
               >
-                <Plus className="w-4 h-4 text-emerald-400" /> Thêm Bộ Câu Hỏi Tự Biên Soạn
+                <Plus className="w-4 h-4 text-emerald-400" /> Thêm/Import Đề Thi LaTeX (.tex ex_test)
               </button>
             </div>
 
@@ -316,15 +316,15 @@ export function App() {
           </span>
           <span>•</span>
           <span className="flex items-center gap-1.5 text-cyan-400">
-            <Shield className="w-4 h-4" /> Khiên Bảo Vệ & Đòn Tấn Công
+            <Shield className="w-4 h-4" /> Tấn Công & Khiên Bảo Vệ
           </span>
           <span>•</span>
-          <span className="flex items-center gap-1.5 text-purple-400">
-            <Flame className="w-4 h-4" /> Thưởng Chuỗi Đúng Combo
+          <span className="flex items-center gap-1.5 text-amber-400">
+            <Zap className="w-4 h-4" /> Đua Tốc Độ & X2 Điểm
           </span>
           <span>•</span>
-          <span className="flex items-center gap-1.5 text-emerald-400">
-            <Users className="w-4 h-4" /> Hỗ Trợ Nhập Cuộc Trễ (Late-Join)
+          <span className="flex items-center gap-1.5 text-pink-400">
+            <Gift className="w-4 h-4" /> Rương May Mắn & Đóng Băng
           </span>
         </div>
 
@@ -345,7 +345,6 @@ export function App() {
 
   // ==================== RENDER: STUDENT FLOW ====================
   if (role === 'PLAYER') {
-    // Step 1: Chibi Character Customization before entering lobby
     if (showCustomizer && !player) {
       return (
         <div className="min-h-screen bg-slate-950 p-6 flex flex-col items-center justify-center relative">
@@ -371,7 +370,6 @@ export function App() {
       );
     }
 
-    // Step 2: Student Lobby Phase
     if (room.phase === 'LOBBY') {
       return (
         <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
@@ -393,12 +391,11 @@ export function App() {
       );
     }
 
-    // Step 3: Question Active Phase
     if (room.phase === 'QUESTION') {
       const currentQ = room.quiz.questions[room.currentQuestionIndex] || {
         id: 'fallback-q',
-        questionText: 'Đang tải câu hỏi từ Giáo viên...',
-        options: ['Lựa chọn A', 'Lựa chọn B', 'Lựa chọn C', 'Lựa chọn D'],
+        questionText: 'Đang tải câu hỏi...',
+        options: ['A', 'B', 'C', 'D'],
         correctIndex: 0,
         timeLimit: 20,
         points: 100,
@@ -415,19 +412,18 @@ export function App() {
             onAnswerSubmit={handleAnswerSubmit}
           />
 
-          {/* Battle Attack Modal if unlocked */}
           <BattleActionModal
             attacker={player}
             opponents={opponents}
-            isOpen={showAttackModal}
-            onExecuteAttack={handleExecuteAttack}
-            onClose={() => setShowAttackModal(false)}
+            isOpen={showPowerUpModal}
+            powerUpType={player.unlockedPowerUp}
+            onExecutePowerUp={handleExecutePowerUp}
+            onClose={() => setShowPowerUpModal(false)}
           />
         </div>
       );
     }
 
-    // Step 4: Leaderboard / Game Finished
     return (
       <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center">
         <LiveLeaderboard

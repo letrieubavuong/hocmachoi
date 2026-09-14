@@ -9,6 +9,8 @@ export interface ChibiCustomization {
   accessory: 'none' | 'glasses' | 'sunglasses' | 'mask' | 'headphone';
 }
 
+export type PowerUpType = 'ATTACK' | 'SHIELD' | 'DOUBLE_POINTS' | 'FREEZE' | 'MYSTERY_BOX';
+
 export interface Player {
   id: string;
   name: string;
@@ -17,11 +19,15 @@ export interface Player {
   streak: number;
   shieldActive: boolean;
   shieldCount: number;
-  attackCardReady: boolean;
+  doublePointsActive?: boolean;
+  isFrozen?: boolean;
+  frozenUntil?: number;
+  unlockedPowerUp?: PowerUpType | null;
   lastAttackNotice?: {
     attackerName: string;
     blocked: boolean;
     stolenPoints: number;
+    powerUpType?: PowerUpType;
     timestamp: number;
   };
   isReady: boolean;
@@ -68,5 +74,6 @@ export interface AttackEvent {
   targetName: string;
   blocked: boolean;
   stolenPoints: number;
+  powerUpType?: PowerUpType;
   timestamp: number;
 }

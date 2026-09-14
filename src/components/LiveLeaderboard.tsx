@@ -22,6 +22,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
   isHost = false,
 }) => {
   const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
+  const totalQuestions = 5; // Default reference questions count for rank threshold calculation
 
   useEffect(() => {
     if (isFinal) {
@@ -44,7 +45,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
       <div className="text-center space-y-2">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-yellow-300 font-extrabold text-xs">
           <Sparkles className="w-4 h-4 text-yellow-400 animate-spin" />
-          <span>Hệ Thống Rank Đấu Trường Liên Quân Quiz</span>
+          <span>Hệ Thống Rank Đấu Trường Theo Tỷ Lệ Đề Thi</span>
         </div>
 
         <h2 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 flex items-center justify-center gap-3">
@@ -63,7 +64,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
           {top2 ? (
             <div className="flex flex-col items-center animate-fade-in w-full">
               {(() => {
-                const rank = getRankTier(top2.score);
+                const rank = getRankTier(top2.score, totalQuestions);
                 return (
                   <div className="flex flex-col items-center">
                     <span className={`px-2 py-0.5 mb-2 rounded-lg text-[10px] font-black bg-gradient-to-r ${rank.bgGradient} text-white shadow-md flex items-center gap-1`}>
@@ -89,7 +90,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
           {top1 ? (
             <div className="flex flex-col items-center animate-bounce-slow w-full">
               {(() => {
-                const rank = getRankTier(top1.score);
+                const rank = getRankTier(top1.score, totalQuestions);
                 return (
                   <div className="flex flex-col items-center">
                     <span className={`px-3 py-1 mb-2 rounded-xl text-xs font-black bg-gradient-to-r ${rank.bgGradient} text-white shadow-xl flex items-center gap-1.5 animate-pulse`}>
@@ -115,7 +116,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
           {top3 ? (
             <div className="flex flex-col items-center animate-fade-in w-full">
               {(() => {
-                const rank = getRankTier(top3.score);
+                const rank = getRankTier(top3.score, totalQuestions);
                 return (
                   <div className="flex flex-col items-center">
                     <span className={`px-2 py-0.5 mb-2 rounded-lg text-[10px] font-black bg-gradient-to-r ${rank.bgGradient} text-white shadow-md flex items-center gap-1`}>
@@ -146,7 +147,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
 
         <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
           {sortedPlayers.map((player, idx) => {
-            const rank = getRankTier(player.score);
+            const rank = getRankTier(player.score, totalQuestions);
             return (
               <div
                 key={player.id}
@@ -194,7 +195,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
       {/* Lien Quan Rank Tiers Legend Ribbon */}
       <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-2xl space-y-2">
         <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-          <Zap className="w-4 h-4 text-yellow-400" /> Các Bậc Rank Đấu Trường Liên Quân Quiz
+          <Zap className="w-4 h-4 text-yellow-400" /> Tỷ Lệ Phần Trăm Leo Rank Đấu Trường Liên Quan Quiz
         </span>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
           {LIEN_QUAN_RANKS.map((r) => (
@@ -203,7 +204,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
               className={`px-2.5 py-1 rounded-xl font-extrabold text-[11px] bg-gradient-to-r ${r.bgGradient} text-white shadow-sm flex items-center gap-1 border border-white/20`}
             >
               <span>{r.icon}</span>
-              <span>{r.name} ({r.minScore}+)</span>
+              <span>{r.name} ({r.percentThreshold}%+)</span>
             </div>
           ))}
         </div>
@@ -213,12 +214,20 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
       {attacks.length > 0 && (
         <div className="bg-slate-950/80 border border-purple-500/20 p-4 rounded-2xl space-y-2">
           <span className="text-xs font-extrabold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Swords className="w-4 h-4" /> Nhật Ký Đấu Tranh Tấn Công
+            <Swords className="w-4 h-4" /> Nhật Ký Đấu Tranh Tấn Công & Thẻ Thưởng
           </span>
           <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar text-xs">
             {attacks.map((att) => (
               <div key={att.id} className="p-2 bg-slate-900/90 rounded-xl border border-slate-800 flex items-center justify-between text-slate-300">
-                {att.blocked ? (
+                {att.powerUpType === 'FREEZE' ? (
+                  <span className="text-cyan-300">
+                    ❄️ <strong className="text-white">{att.attackerName}</strong> đã đóng băng màn hình của <strong>{att.targetName}</strong> trong 6s!
+                  </span>
+                ) : att.powerUpType === 'MYSTERY_BOX' ? (
+                  <span className="text-yellow-300">
+                    🎁 <strong className="text-white">{att.attackerName}</strong> đã trúng rương kho báu ngẫu nhiên!
+                  </span>
+                ) : att.blocked ? (
                   <span className="text-cyan-300">
                     🛡️ <strong className="text-white">{att.targetName}</strong> đã dùng khiên chặn thành công cú đánh từ <strong>{att.attackerName}</strong>!
                   </span>

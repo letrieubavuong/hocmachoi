@@ -1,9 +1,9 @@
-import { GameRoom, Player, Quiz, GamePhase, AttackEvent } from '../types';
+import { GameRoom, Player, Quiz, GamePhase, AttackEvent, PowerUpType } from '../types';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
 const STORAGE_KEY_PREFIX = 'chibi_quiz_room_';
-const PEER_PREFIX = 'chibi-room-v2-';
+const PEER_PREFIX = 'chibi-room-v3-';
 
 export class RealtimeService {
   private channel: BroadcastChannel | null = null;
@@ -42,7 +42,7 @@ export class RealtimeService {
     }
   }
 
-  // Host: Create a new room with PeerJS listener for remote phones
+  // Host: Create a new room
   public createRoom(quiz: Quiz, hostId: string): GameRoom {
     const roomCode = Math.floor(100000 + Math.random() * 900000).toString();
     const room: GameRoom = {
@@ -64,23 +64,12 @@ export class RealtimeService {
     return room;
   }
 
-  // Initialize Host PeerJS listener to receive phone connections
   private initHostPeer(roomCode: string) {
     try {
       if (this.peer) this.peer.destroy();
-      
-      // Clean peer ID for host
-      const peerId = `${PEER_PREFIX}${roomCode}`;
-      this.peer = new Peer(peerId, {
-        debug: 1,
-      });
-
-      this.peer.on('open', (id) => {
-        console.log('Host PeerJS initialized successfully:', id);
-      });
+      this.peer = new Peer(`${PEER_PREFIX}${roomCode}`);
 
       this.peer.on('connection', (conn) => {
-        console.log('New student connected via PeerJS:', conn.peer);
         this.connections.set(conn.peer, conn);
 
         conn.on('data', (data: any) => {
@@ -98,7 +87,7 @@ export class RealtimeService {
           } else if (data?.type === 'SUBMIT_ANSWER') {
             this.updatePlayerStats(roomCode, data.playerId, data.scoreToAdd, data.isCorrect);
           } else if (data?.type === 'EXECUTE_ATTACK') {
-            this.executeAttack(roomCode, data.attackerId, data.targetId);
+            this.executePowerUp(roomCode, data.attackerId, data.targetId, data.powerUpType);
           }
         });
 
@@ -106,61 +95,45 @@ export class RealtimeService {
           this.connections.delete(conn.peer);
         });
 
-        // Send current room state immediately upon student connect
         const currentRoom = this.getRoom(roomCode);
         if (currentRoom) {
           conn.send({ type: 'ROOM_UPDATE', room: currentRoom });
         }
       });
-
-      this.peer.on('error', (err) => {
-        console.warn('Host PeerJS warning:', err);
-      });
     } catch (e) {
-      console.warn('PeerJS init failed:', e);
+      console.warn('PeerJS init error:', e);
     }
   }
 
-  // Student: Join Room (Handles Remote Phone to PC Sync & Late-Join!)
+  // Student: Join Room
   public joinRoom(roomCode: string, player: Player): GameRoom | null {
     this.currentRoomCode = roomCode;
-
-    // Check local storage first (for same device / multi-tab test)
     let room = this.getRoom(roomCode);
 
-    // Initialize Student PeerJS to connect to Host PC
     try {
       if (this.peer) this.peer.destroy();
-      this.peer = new Peer({ debug: 1 });
+      this.peer = new Peer();
 
       this.peer.on('open', () => {
         const hostPeerId = `${PEER_PREFIX}${roomCode}`;
-        console.log('Student attempting WebRTC connection to Host:', hostPeerId);
         const conn = this.peer!.connect(hostPeerId, { reliable: true });
         this.hostConnection = conn;
 
         conn.on('open', () => {
-          console.log('WebRTC connection established with Host PC!');
           conn.send({ type: 'JOIN_PLAYER', player });
         });
 
         conn.on('data', (data: any) => {
           if (data?.type === 'ROOM_UPDATE' && data.room) {
-            console.log('Received room state update from Host PC');
             this.saveLocalOnly(data.room);
             this.notifyListeners(data.room);
           }
-        });
-
-        conn.on('error', (err) => {
-          console.warn('Connection to host error:', err);
         });
       });
     } catch (e) {
       console.warn('Student PeerJS connect error:', e);
     }
 
-    // If local room exists (same tab/browser)
     if (room) {
       const updatedPlayers = { ...room.players, [player.id]: player };
       room = { ...room, players: updatedPlayers, updatedAt: Date.now() };
@@ -168,8 +141,7 @@ export class RealtimeService {
       return room;
     }
 
-    // Initial placeholder room while PeerJS syncs state from Host PC
-    const initialPlaceholderRoom: GameRoom = {
+    const placeholderRoom: GameRoom = {
       roomCode,
       hostId: 'remote-host',
       quiz: {
@@ -187,11 +159,11 @@ export class RealtimeService {
       updatedAt: Date.now(),
     };
 
-    this.saveLocalOnly(initialPlaceholderRoom);
-    return initialPlaceholderRoom;
+    this.saveLocalOnly(placeholderRoom);
+    return placeholderRoom;
   }
 
-  // Host: Update Game Phase (e.g. Start Game -> 'QUESTION', Next -> 'RESULT', etc.)
+  // Host: Update Game Phase
   public updatePhase(roomCode: string, phase: GamePhase, questionIndex?: number): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room) return null;
@@ -210,7 +182,7 @@ export class RealtimeService {
     return updatedRoom;
   }
 
-  // Update Player Stats (Score, Streak, Shield)
+  // Update Player Stats with Expanded Power-Ups!
   public updatePlayerStats(
     roomCode: string,
     playerId: string,
@@ -225,20 +197,38 @@ export class RealtimeService {
 
     let newShieldActive = player.shieldActive;
     let newShieldCount = player.shieldCount;
-    if (newStreak >= 2 && !player.shieldActive) {
-      newShieldActive = true;
-      newShieldCount += 1;
+    let unlockedPowerUp: PowerUpType | null = player.unlockedPowerUp || null;
+
+    // Power-up rewards algorithm
+    if (newStreak === 2) {
+      // 2 Streak: Shield OR Double Points
+      if (!newShieldActive) {
+        newShieldActive = true;
+        newShieldCount += 1;
+      }
+      unlockedPowerUp = 'DOUBLE_POINTS';
+    } else if (newStreak >= 3) {
+      // 3+ Streak: Random choice between Attack ⚔️, Freeze ❄️, or Mystery Chest 🎁
+      const options: PowerUpType[] = ['ATTACK', 'FREEZE', 'MYSTERY_BOX'];
+      unlockedPowerUp = options[Math.floor(Math.random() * options.length)];
     }
 
-    const newAttackReady = newStreak >= 3;
+    // Apply double points multiplier if was active
+    let finalDeltaScore = deltaScore;
+    let doublePointsActive = player.doublePointsActive;
+    if (player.doublePointsActive && isCorrect) {
+      finalDeltaScore = deltaScore * 2;
+      doublePointsActive = false; // consumed
+    }
 
     const updatedPlayer: Player = {
       ...player,
-      score: Math.max(0, player.score + deltaScore),
+      score: Math.max(0, player.score + finalDeltaScore),
       streak: newStreak,
       shieldActive: newShieldActive,
       shieldCount: newShieldCount,
-      attackCardReady: newAttackReady,
+      doublePointsActive,
+      unlockedPowerUp,
     };
 
     const updatedRoom: GameRoom = {
@@ -265,56 +255,78 @@ export class RealtimeService {
     return updatedRoom;
   }
 
-  // Perform Player Attack Mechanics!
-  public executeAttack(
+  // Execute Power-Up Action (Attack, Freeze, Double Points, Mystery Box)
+  public executePowerUp(
     roomCode: string,
     attackerId: string,
-    targetId: string
-  ): { success: boolean; blocked: boolean; stolenPoints: number } | null {
+    targetId: string,
+    powerUpType: PowerUpType = 'ATTACK'
+  ): { success: boolean; blocked: boolean; stolenPoints: number; mysteryBonus?: number } | null {
     const room = this.getRoom(roomCode);
-    if (!room || !room.players[attackerId] || !room.players[targetId]) return null;
+    if (!room || !room.players[attackerId]) return null;
 
     const attacker = room.players[attackerId];
-    const target = room.players[targetId];
+    const target = room.players[targetId] || attacker;
 
     let blocked = false;
     let stolenPoints = 0;
+    let mysteryBonus = 0;
 
+    const updatedAttacker = { ...attacker, unlockedPowerUp: null };
     const updatedTarget = { ...target };
-    const updatedAttacker = { ...attacker, attackCardReady: false };
 
-    if (target.shieldActive) {
-      blocked = true;
-      updatedTarget.shieldActive = false;
-      updatedTarget.shieldCount = Math.max(0, target.shieldCount - 1);
-      updatedTarget.lastAttackNotice = {
-        attackerName: attacker.name,
-        blocked: true,
-        stolenPoints: 0,
-        timestamp: Date.now(),
-      };
-    } else {
-      blocked = false;
-      stolenPoints = Math.max(30, Math.round(target.score * 0.2));
-      updatedTarget.score = Math.max(0, target.score - stolenPoints);
-      updatedAttacker.score += stolenPoints;
+    if (powerUpType === 'ATTACK') {
+      if (target.shieldActive) {
+        blocked = true;
+        updatedTarget.shieldActive = false;
+        updatedTarget.shieldCount = Math.max(0, target.shieldCount - 1);
+        updatedTarget.lastAttackNotice = {
+          attackerName: attacker.name,
+          blocked: true,
+          stolenPoints: 0,
+          powerUpType,
+          timestamp: Date.now(),
+        };
+      } else {
+        blocked = false;
+        stolenPoints = Math.max(30, Math.round(target.score * 0.2));
+        updatedTarget.score = Math.max(0, target.score - stolenPoints);
+        updatedAttacker.score += stolenPoints;
 
-      updatedTarget.lastAttackNotice = {
-        attackerName: attacker.name,
-        blocked: false,
-        stolenPoints,
-        timestamp: Date.now(),
-      };
+        updatedTarget.lastAttackNotice = {
+          attackerName: attacker.name,
+          blocked: false,
+          stolenPoints,
+          powerUpType,
+          timestamp: Date.now(),
+        };
+      }
+    } else if (powerUpType === 'FREEZE') {
+      if (target.shieldActive) {
+        blocked = true;
+        updatedTarget.shieldActive = false;
+        updatedTarget.shieldCount = Math.max(0, target.shieldCount - 1);
+      } else {
+        blocked = false;
+        updatedTarget.isFrozen = true;
+        updatedTarget.frozenUntil = Date.now() + 6000; // 6s freeze
+      }
+    } else if (powerUpType === 'DOUBLE_POINTS') {
+      updatedAttacker.doublePointsActive = true;
+    } else if (powerUpType === 'MYSTERY_BOX') {
+      mysteryBonus = Math.floor(150 + Math.random() * 300); // +150 to +450 bonus pts
+      updatedAttacker.score += mysteryBonus;
     }
 
     const attackEvent: AttackEvent = {
       id: Math.random().toString(36).substr(2, 9),
       attackerId,
       attackerName: attacker.name,
-      targetId,
+      targetId: target.id,
       targetName: target.name,
       blocked,
       stolenPoints,
+      powerUpType,
       timestamp: Date.now(),
     };
 
@@ -323,7 +335,7 @@ export class RealtimeService {
       players: {
         ...room.players,
         [attackerId]: updatedAttacker,
-        [targetId]: updatedTarget,
+        ...(target.id !== attackerId ? { [target.id]: updatedTarget } : {}),
       },
       attacks: [attackEvent, ...room.attacks.slice(0, 15)],
       updatedAt: Date.now(),
@@ -337,10 +349,11 @@ export class RealtimeService {
         type: 'EXECUTE_ATTACK',
         attackerId,
         targetId,
+        powerUpType,
       });
     }
 
-    return { success: true, blocked, stolenPoints };
+    return { success: true, blocked, stolenPoints, mysteryBonus };
   }
 
   private broadcastToPeerClients(room: GameRoom) {
