@@ -146,7 +146,7 @@ export function App() {
     if (updated) setRoom(updated);
   };
 
-  // Host: Go to Next Question or Final Leaderboard
+  // Host or Player Auto-Next Question Progression
   const handleNextQuestion = () => {
     if (!room) return;
     const nextIdx = room.currentQuestionIndex + 1;
@@ -189,7 +189,6 @@ export function App() {
     setQuizzesList(updated);
     setSelectedQuiz(newQuiz);
 
-    // Filter out built-in samples to save only user custom quizzes in localStorage
     const customOnly = updated.filter((q) => !SAMPLE_QUIZZES.some((s) => s.id === q.id));
     localStorage.setItem(STORAGE_CUSTOM_QUIZZES, JSON.stringify(customOnly));
   };
@@ -435,6 +434,7 @@ export function App() {
             totalQuestions={room.quiz.questions.length || 1}
             player={player}
             onAnswerSubmit={handleAnswerSubmit}
+            onAutoNext={handleNextQuestion}
           />
 
           <BattleActionModal
@@ -510,6 +510,7 @@ export function App() {
               questionNumber={room.currentQuestionIndex + 1}
               totalQuestions={room.quiz.questions.length}
               onAnswerSubmit={() => {}}
+              onAutoNext={handleNextQuestion}
             />
           )}
         </div>

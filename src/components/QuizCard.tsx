@@ -3,7 +3,7 @@ import { Question, Player } from '../types';
 import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
 import { getRankTier } from '../data/rankAssets';
-import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, HelpCircle, Check, X, Send } from 'lucide-react';
+import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, Check, X, Send } from 'lucide-react';
 
 interface QuizCardProps {
   question: Question;
@@ -11,6 +11,7 @@ interface QuizCardProps {
   totalQuestions: number;
   player?: Player;
   onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => void;
+  onAutoNext?: () => void;
 }
 
 export const QuizCard: React.FC<QuizCardProps> = ({
@@ -19,6 +20,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   totalQuestions,
   player,
   onAnswerSubmit,
+  onAutoNext,
 }) => {
   const [timeLeft, setTimeLeft] = useState(question.timeLimit || 20);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -70,9 +72,20 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setIsAnswered(true);
     soundManager.playWrong();
     onAnswerSubmit(-1, false, question.timeLimit || 20);
+
+    // Auto-advance after 1.5 seconds on timeout
+    triggerAutoNext();
   };
 
-  // Submit Multiple Choice Answer
+  const triggerAutoNext = () => {
+    if (onAutoNext) {
+      setTimeout(() => {
+        onAutoNext();
+      }, 1400);
+    }
+  };
+
+  // Submit Multiple Choice Answer -> Auto-advance after 1.4s!
   const handleSelectMC = (index: number) => {
     if (isAnswered) return;
     setIsAnswered(true);
@@ -80,9 +93,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
     const isCorrect = index === question.correctIndex;
     evaluateAndSubmit(isCorrect, index);
+    triggerAutoNext();
   };
 
-  // Submit True / False (ChoiceTF) Answer
+  // Submit True / False (ChoiceTF) Answer -> Auto-advance after 1.4s!
   const handleToggleTF = (stmtIdx: number, val: boolean) => {
     if (isAnswered) return;
     setTfUserSelections((prev) => ({ ...prev, [stmtIdx]: val }));
@@ -102,9 +116,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
     const isCorrect = correctCount === question.options.length;
     evaluateAndSubmit(isCorrect, 0);
+    triggerAutoNext();
   };
 
-  // Submit Short Answer (\shortans)
+  // Submit Short Answer (\shortans) -> Auto-advance after 1.4s!
   const handleSubmitShort = (e: React.FormEvent) => {
     e.preventDefault();
     if (isAnswered || !shortInput.trim()) return;
@@ -115,6 +130,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     const isCorrect = userClean === targetClean || (parseFloat(userClean) === parseFloat(targetClean));
 
     evaluateAndSubmit(isCorrect, 0);
+    triggerAutoNext();
   };
 
   const evaluateAndSubmit = (isCorrect: boolean, selectedIdx: number) => {
@@ -334,7 +350,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                 onClick={handleSubmitTF}
                 className="w-full py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:opacity-40 text-white font-black text-lg rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
-                <Send className="w-5 h-5" /> GỬI KẾT QUẢ ĐÚNG / SAI
+                <Send className="w-5 h-5" /> GỬI KẾT QUẢ ĐÚNG / SAI ➔
               </button>
             )}
           </div>
@@ -363,7 +379,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                 disabled={!shortInput.trim()}
                 className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-40 text-white font-black text-lg rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
-                <Send className="w-5 h-5" /> GỬI CÂU TRẢ LỜI NGẮN
+                <Send className="w-5 h-5" /> GỬI CÂU TRẢ LỜI NGẮN ➔
               </button>
             ) : (
               <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs font-bold text-yellow-300">
@@ -403,9 +419,13 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                   +{lastEarnedScore.total} Điểm!
                 </span>
               </div>
+              <span className="text-[11px] text-slate-400 block pt-1">⚡ Đang tự động chuyển sang câu tiếp theo...</span>
             </div>
           ) : (
-            <span className="text-lg block">❌ CHƯA CHÍNH XÁC! Hãy cố gắng ở câu tiếp theo!</span>
+            <div className="space-y-1">
+              <span className="text-lg block">❌ CHƯA CHÍNH XÁC!</span>
+              <span className="text-[11px] text-slate-400 block">⚡ Đang tự động chuyển sang câu tiếp theo...</span>
+            </div>
           )}
 
           {question.explanation && (
