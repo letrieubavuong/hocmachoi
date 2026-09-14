@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Quiz, Question } from '../types';
 import { parseExTestTeX } from '../utils/texParser';
 import { MathRenderer } from './MathRenderer';
-import { Plus, Trash2, X, BookOpen, Clock, CheckCircle, Upload, FileCode, Sparkles } from 'lucide-react';
+import { Plus, Trash2, X, BookOpen, Clock, CheckCircle, Upload, FileCode, Sparkles, Download } from 'lucide-react';
 
 interface QuizCreatorModalProps {
   isOpen: boolean;
@@ -38,7 +38,7 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Handle uploading a .tex file directly
+  // Handle uploading a .tex or .json file directly
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -46,7 +46,22 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      if (content) {
+      if (!content) return;
+
+      if (file.name.endsWith('.json')) {
+        try {
+          const parsed = JSON.parse(content) as Quiz;
+          if (parsed.title && Array.isArray(parsed.questions)) {
+            setTitle(parsed.title);
+            setSubject(parsed.subject || 'Đề Thi');
+            setDescription(parsed.description || '');
+            setQuestions(parsed.questions);
+            setImportNotice(`🎉 Nhập thành công bộ đề thi JSON "${parsed.title}" (${parsed.questions.length} câu)!`);
+          }
+        } catch (err) {
+          setImportNotice('⚠️ File JSON không hợp lệ!');
+        }
+      } else {
         setTexRawInput(content);
         processTexContent(content);
       }
@@ -63,6 +78,24 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
     } else {
       setImportNotice('⚠️ Không tìm thấy khối câu hỏi dạng \\begin{ex} ... \\end{ex} hoặc \\choice trong file .tex!');
     }
+  };
+
+  const handleExportJSON = () => {
+    const quiz: Quiz = {
+      id: `quiz-export-${Date.now()}`,
+      title: title.trim() || 'De_Thi_Quiz',
+      subject: subject.trim() || 'Toán',
+      description: description.trim() || 'Bộ đề thi xuất từ Học Mà Chơi',
+      questions,
+    };
+
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(quiz, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `${title.trim() || 'de_thi'}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
   };
 
   const handleAddQuestion = () => {
@@ -119,7 +152,7 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
           <div className="flex items-center gap-2 text-purple-400 font-extrabold">
             <BookOpen className="w-6 h-6" />
-            <h2 className="text-xl font-black text-white">Thêm Bộ Đề Thi (Hỗ Trợ LaTeX ex_test)</h2>
+            <h2 className="text-xl font-black text-white">Thêm & Lưu Bộ Đề Thi (Tự Động Lưu Trình Duyệt)</h2>
           </div>
           <button
             onClick={onClose}
@@ -139,7 +172,7 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
             }`}
           >
             <FileCode className="w-4 h-4 text-yellow-400" />
-            Nhập Từ File LaTeX (.tex ex_test chuẩn Việt Nam)
+            Nhập Từ File LaTeX (.tex ex_test) hoặc JSON
           </button>
           <button
             type="button"
@@ -186,22 +219,24 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-black text-yellow-400 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-yellow-400" /> Import File .tex Gói ex_test
+                    <Sparkles className="w-4 h-4 text-yellow-400" /> Import File .tex Gói ex_test Hoặc File JSON
                   </h3>
                   <p className="text-xs text-slate-400">
                     Hỗ trợ mã nguồn TeX chuẩn dạng <code className="text-purple-300">\begin&#123;ex&#125; ... \choice&#123;A&#125;&#123;\True B&#125; ... \end&#123;ex&#125;</code>
                   </p>
                 </div>
 
-                <label className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-md shrink-0">
-                  <Upload className="w-4 h-4" /> Tải File .tex Từ Máy Tính
-                  <input
-                    type="file"
-                    accept=".tex,.txt"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-md shrink-0">
+                    <Upload className="w-4 h-4" /> Tải File .tex / .json
+                    <input
+                      type="file"
+                      accept=".tex,.txt,.json"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
 
               <div>
@@ -234,15 +269,25 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
           <div className="space-y-6 pt-2">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-yellow-400">
-                Danh Sách Câu Hỏi Đã Trích Xuất ({questions.length} câu)
+                Danh Sách Câu Hỏi ({questions.length} câu)
               </h3>
-              <button
-                type="button"
-                onClick={handleAddQuestion}
-                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold flex items-center gap-1"
-              >
-                <Plus className="w-4 h-4" /> Thêm Thủ Công
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportJSON}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5"
+                  title="Xuất đề thi ra file JSON dự phòng"
+                >
+                  <Download className="w-3.5 h-3.5 text-cyan-400" /> Export JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddQuestion}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" /> Thêm Thủ Công
+                </button>
+              </div>
             </div>
 
             {questions.map((q, qIdx) => (
@@ -338,7 +383,7 @@ export const QuizCreatorModal: React.FC<QuizCreatorModalProps> = ({
               type="submit"
               className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold rounded-xl text-sm shadow-lg"
             >
-              Lưu & Sử Dụng Ngay
+              Lưu Vào Máy & Sử Dụng Ngay
             </button>
           </div>
         </form>

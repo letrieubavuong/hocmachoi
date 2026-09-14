@@ -30,11 +30,31 @@ import {
   Zap,
 } from 'lucide-react';
 
+const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
+
 export function App() {
   const [role, setRole] = useState<'HOME' | 'HOST' | 'PLAYER'>('HOME');
   const [roomCodeInput, setRoomCodeInput] = useState('');
-  const [selectedQuiz, setSelectedQuiz] = useState<Quiz>(SAMPLE_QUIZZES[0]);
-  const [quizzesList, setQuizzesList] = useState<Quiz[]>(SAMPLE_QUIZZES);
+  
+  // Custom quizzes persistent storage
+  const [quizzesList, setQuizzesList] = useState<Quiz[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(STORAGE_CUSTOM_QUIZZES);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return [...parsed, ...SAMPLE_QUIZZES];
+          }
+        } catch (e) {
+          console.error('Failed to parse saved quizzes', e);
+        }
+      }
+    }
+    return SAMPLE_QUIZZES;
+  });
+
+  const [selectedQuiz, setSelectedQuiz] = useState<Quiz>(quizzesList[0]);
 
   // Active game room state
   const [room, setRoom] = useState<GameRoom | null>(null);
@@ -163,10 +183,15 @@ export function App() {
     return result;
   };
 
-  // Save new custom quiz from QuizCreatorModal
+  // Save new custom quiz into localStorage persistently!
   const handleSaveQuiz = (newQuiz: Quiz) => {
-    setQuizzesList([newQuiz, ...quizzesList]);
+    const updated = [newQuiz, ...quizzesList.filter((q) => q.id !== newQuiz.id)];
+    setQuizzesList(updated);
     setSelectedQuiz(newQuiz);
+
+    // Filter out built-in samples to save only user custom quizzes in localStorage
+    const customOnly = updated.filter((q) => !SAMPLE_QUIZZES.some((s) => s.id === q.id));
+    localStorage.setItem(STORAGE_CUSTOM_QUIZZES, JSON.stringify(customOnly));
   };
 
   const handleResetHome = () => {
