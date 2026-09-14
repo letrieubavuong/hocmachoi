@@ -3,7 +3,7 @@ import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
 const STORAGE_KEY_PREFIX = 'chibi_quiz_room_';
-const PEER_PREFIX = 'chibi-room-v3-';
+const PEER_PREFIX = 'chibi-room-v4-';
 
 export class RealtimeService {
   private channel: BroadcastChannel | null = null;
@@ -182,7 +182,7 @@ export class RealtimeService {
     return updatedRoom;
   }
 
-  // Update Player Stats with Expanded Power-Ups!
+  // Update Player Stats with 10 Epic Power-Ups!
   public updatePlayerStats(
     roomCode: string,
     playerId: string,
@@ -199,26 +199,33 @@ export class RealtimeService {
     let newShieldCount = player.shieldCount;
     let unlockedPowerUp: PowerUpType | null = player.unlockedPowerUp || null;
 
-    // Power-up rewards algorithm
+    // Rich Power-up rewards algorithm
     if (newStreak === 2) {
-      // 2 Streak: Shield OR Double Points
-      if (!newShieldActive) {
+      const tier1Options: PowerUpType[] = ['SHIELD', 'DOUBLE_POINTS', 'ORACLE_5050', 'REFLECT_SHIELD'];
+      unlockedPowerUp = tier1Options[Math.floor(Math.random() * tier1Options.length)];
+      if (unlockedPowerUp === 'SHIELD' && !newShieldActive) {
         newShieldActive = true;
         newShieldCount += 1;
       }
-      unlockedPowerUp = 'DOUBLE_POINTS';
     } else if (newStreak >= 3) {
-      // 3+ Streak: Random choice between Attack ⚔️, Freeze ❄️, or Mystery Chest 🎁
-      const options: PowerUpType[] = ['ATTACK', 'FREEZE', 'MYSTERY_BOX'];
-      unlockedPowerUp = options[Math.floor(Math.random() * options.length)];
+      const tier2Options: PowerUpType[] = [
+        'ATTACK',
+        'FREEZE',
+        'MYSTERY_BOX',
+        'SWAP_SCORE',
+        'BOMB',
+        'ROCKET_BOOST',
+        'REFLECT_SHIELD',
+      ];
+      unlockedPowerUp = tier2Options[Math.floor(Math.random() * tier2Options.length)];
     }
 
-    // Apply double points multiplier if was active
+    // Apply double points multiplier if active
     let finalDeltaScore = deltaScore;
     let doublePointsActive = player.doublePointsActive;
     if (player.doublePointsActive && isCorrect) {
       finalDeltaScore = deltaScore * 2;
-      doublePointsActive = false; // consumed
+      doublePointsActive = false;
     }
 
     const updatedPlayer: Player = {
@@ -255,7 +262,7 @@ export class RealtimeService {
     return updatedRoom;
   }
 
-  // Execute Power-Up Action (Attack, Freeze, Double Points, Mystery Box)
+  // Execute Power-Up Action (Supports 10 Epic Power-Ups!)
   public executePowerUp(
     roomCode: string,
     attackerId: string,
@@ -272,50 +279,53 @@ export class RealtimeService {
     let stolenPoints = 0;
     let mysteryBonus = 0;
 
-    const updatedAttacker = { ...attacker, unlockedPowerUp: null };
-    const updatedTarget = { ...target };
+    let updatedAttacker = { ...attacker, unlockedPowerUp: null };
+    let updatedTarget = { ...target };
 
-    if (powerUpType === 'ATTACK') {
-      if (target.shieldActive) {
+    // Check Shield / Reflect Shield on Target
+    if (target.id !== attacker.id && (target.reflectShieldActive || target.shieldActive)) {
+      if (target.reflectShieldActive && powerUpType === 'ATTACK') {
+        // REFLECT SHIELD: Damage bounces back onto Attacker!
+        blocked = true;
+        stolenPoints = Math.max(30, Math.round(attacker.score * 0.2));
+        updatedAttacker.score = Math.max(0, attacker.score - stolenPoints);
+        updatedTarget.score += stolenPoints;
+        updatedTarget.reflectShieldActive = false;
+      } else if (target.shieldActive) {
+        // STANDARD SHIELD: Blocks attack completely
         blocked = true;
         updatedTarget.shieldActive = false;
         updatedTarget.shieldCount = Math.max(0, target.shieldCount - 1);
-        updatedTarget.lastAttackNotice = {
-          attackerName: attacker.name,
-          blocked: true,
-          stolenPoints: 0,
-          powerUpType,
-          timestamp: Date.now(),
-        };
-      } else {
-        blocked = false;
+      }
+    }
+
+    if (!blocked) {
+      if (powerUpType === 'ATTACK') {
         stolenPoints = Math.max(30, Math.round(target.score * 0.2));
         updatedTarget.score = Math.max(0, target.score - stolenPoints);
         updatedAttacker.score += stolenPoints;
-
-        updatedTarget.lastAttackNotice = {
-          attackerName: attacker.name,
-          blocked: false,
-          stolenPoints,
-          powerUpType,
-          timestamp: Date.now(),
-        };
-      }
-    } else if (powerUpType === 'FREEZE') {
-      if (target.shieldActive) {
-        blocked = true;
-        updatedTarget.shieldActive = false;
-        updatedTarget.shieldCount = Math.max(0, target.shieldCount - 1);
-      } else {
-        blocked = false;
+      } else if (powerUpType === 'SWAP_SCORE') {
+        // SWAP SCORE: Directly swap total scores!
+        const tempScore = updatedAttacker.score;
+        updatedAttacker.score = updatedTarget.score;
+        updatedTarget.score = tempScore;
+      } else if (powerUpType === 'FREEZE') {
         updatedTarget.isFrozen = true;
-        updatedTarget.frozenUntil = Date.now() + 6000; // 6s freeze
+      } else if (powerUpType === 'BOMB') {
+        updatedTarget.isBombed = true;
+      } else if (powerUpType === 'DOUBLE_POINTS') {
+        updatedAttacker.doublePointsActive = true;
+      } else if (powerUpType === 'MYSTERY_BOX') {
+        mysteryBonus = Math.floor(200 + Math.random() * 350); // +200 to +550
+        updatedAttacker.score += mysteryBonus;
+      } else if (powerUpType === 'ROCKET_BOOST') {
+        mysteryBonus = 300;
+        updatedAttacker.score += 300;
+      } else if (powerUpType === 'ORACLE_5050') {
+        updatedAttacker.oracle5050Active = true;
+      } else if (powerUpType === 'REFLECT_SHIELD') {
+        updatedAttacker.reflectShieldActive = true;
       }
-    } else if (powerUpType === 'DOUBLE_POINTS') {
-      updatedAttacker.doublePointsActive = true;
-    } else if (powerUpType === 'MYSTERY_BOX') {
-      mysteryBonus = Math.floor(150 + Math.random() * 300); // +150 to +450 bonus pts
-      updatedAttacker.score += mysteryBonus;
     }
 
     const attackEvent: AttackEvent = {

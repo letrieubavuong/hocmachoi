@@ -9,7 +9,17 @@ export interface ChibiCustomization {
   accessory: 'none' | 'glasses' | 'sunglasses' | 'mask' | 'headphone';
 }
 
-export type PowerUpType = 'ATTACK' | 'SHIELD' | 'DOUBLE_POINTS' | 'FREEZE' | 'MYSTERY_BOX';
+export type PowerUpType = 
+  | 'ATTACK' 
+  | 'SHIELD' 
+  | 'DOUBLE_POINTS' 
+  | 'FREEZE' 
+  | 'MYSTERY_BOX' 
+  | 'SWAP_SCORE' 
+  | 'BOMB' 
+  | 'ORACLE_5050' 
+  | 'ROCKET_BOOST' 
+  | 'REFLECT_SHIELD';
 
 export type QuestionType = 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
 
@@ -44,9 +54,11 @@ export interface Player {
   streak: number;
   shieldActive: boolean;
   shieldCount: number;
+  reflectShieldActive?: boolean;
   doublePointsActive?: boolean;
+  oracle5050Active?: boolean;
   isFrozen?: boolean;
-  frozenUntil?: number;
+  isBombed?: boolean;
   unlockedPowerUp?: PowerUpType | null;
   lastAttackNotice?: {
     attackerName: string;
