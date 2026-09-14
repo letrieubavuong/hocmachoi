@@ -94,32 +94,64 @@ function parseSingleExBlock(block: string, index: number): Question | null {
       };
     }
 
-    // 4. Standard \choice Multiple Choice
+    // 4. Check for \choice or \begin{listEX} / \begin{enumEX} Multiple Choice
     const choiceIdx = block.search(/\\choice/i);
-    if (choiceIdx === -1) return null;
+    const listExMatch = block.search(/\\begin\{(listEX|enumEX)\}/i);
 
-    let questionText = block.substring(0, choiceIdx).trim();
-    questionText = cleanTeXString(questionText);
-    questionText = questionText.replace(/^(\\textbf\{)?(Câu|Bài)\s*\d+[\.:]?\s*(\})?/i, '').trim();
+    if (choiceIdx !== -1) {
+      let questionText = block.substring(0, choiceIdx).trim();
+      questionText = cleanTeXString(questionText);
+      questionText = questionText.replace(/^(\\textbf\{)?(Câu|Bài)\s*\d+[\.:]?\s*(\})?/i, '').trim();
 
-    const choicePart = block.substring(choiceIdx);
-    const { options, correctIndex } = parseChoicesMC(choicePart);
+      const choicePart = block.substring(choiceIdx);
+      const { options, correctIndex } = parseChoicesMC(choicePart);
 
-    if (options.length < 2) return null;
-    while (options.length < 4) {
-      options.push(`Lựa chọn ${String.fromCharCode(65 + options.length)}`);
+      if (options.length >= 2) {
+        while (options.length < 4) {
+          options.push(`Lựa chọn ${String.fromCharCode(65 + options.length)}`);
+        }
+
+        return {
+          id: `tex-q-${index}-${Date.now()}`,
+          type: 'MULTIPLE_CHOICE',
+          questionText: questionText || `Câu hỏi trắc nghiệm #${index}`,
+          options: options.slice(0, 4),
+          correctIndex: correctIndex >= 0 && correctIndex < 4 ? correctIndex : 0,
+          timeLimit: 20,
+          points: 100,
+          explanation: explanation || undefined,
+        };
+      }
     }
 
-    return {
-      id: `tex-q-${index}-${Date.now()}`,
-      type: 'MULTIPLE_CHOICE',
-      questionText: questionText || `Câu hỏi trắc nghiệm #${index}`,
-      options: options.slice(0, 4),
-      correctIndex: correctIndex >= 0 && correctIndex < 4 ? correctIndex : 0,
-      timeLimit: 20,
-      points: 100,
-      explanation: explanation || undefined,
-    };
+    // Fallback: listEX/enumEX without explicit \choice keyword
+    if (listExMatch !== -1) {
+      let questionText = block.substring(0, listExMatch).trim();
+      questionText = cleanTeXString(questionText);
+      questionText = questionText.replace(/^(\\textbf\{)?(Câu|Bài)\s*\d+[\.:]?\s*(\})?/i, '').trim();
+
+      const choicePart = block.substring(listExMatch);
+      const { options, correctIndex } = parseChoicesMC(choicePart);
+
+      if (options.length >= 2) {
+        while (options.length < 4) {
+          options.push(`Lựa chọn ${String.fromCharCode(65 + options.length)}`);
+        }
+
+        return {
+          id: `tex-q-${index}-${Date.now()}`,
+          type: 'MULTIPLE_CHOICE',
+          questionText: questionText || `Câu hỏi trắc nghiệm #${index}`,
+          options: options.slice(0, 4),
+          correctIndex: correctIndex >= 0 && correctIndex < 4 ? correctIndex : 0,
+          timeLimit: 20,
+          points: 100,
+          explanation: explanation || undefined,
+        };
+      }
+    }
+
+    return null;
   } catch (e) {
     console.error('Error parsing TeX block:', e);
     return null;
@@ -130,7 +162,15 @@ function parseChoicesTF(choiceStr: string): { statements: string[]; tfAnswers: b
   const statements: string[] = [];
   const tfAnswers: boolean[] = [];
 
-  const body = choiceStr.replace(/^\\choiceTF\s*/i, '').trim();
+  // Remove \choiceTF or \choiceTF[1] or \choiceTF[2] etc.
+  let body = choiceStr.replace(/^\\choiceTF(?:\s*\[.*?\])?\s*/i, '').trim();
+
+  // Strip \begin{listEX}... \end{listEX} or \begin{enumEX}... \end{enumEX} outer wrappers
+  body = body
+    .replace(/\\begin\{(listEX|enumEX)\}(?:\[.*?\])*(?:\{.*?\})*/gi, '')
+    .replace(/\\end\{(listEX|enumEX)\}/gi, '')
+    .trim();
+
   const braceBlocks = extractBraceBlocks(body);
 
   if (braceBlocks.length >= 4) {
@@ -142,8 +182,8 @@ function parseChoicesTF(choiceStr: string): { statements: string[]; tfAnswers: b
       tfAnswers.push(isTrue);
     });
   } else {
-    // Fallback item split
-    const items = body.split(/\\item|\\choice/i).filter((s) => s.trim().length > 0);
+    // Fallback item / task split
+    const items = body.split(/\\item|\\choice|\\task/i).filter((s) => s.trim().length > 0);
     items.slice(0, 4).forEach((rawOpt) => {
       let text = rawOpt.trim();
       const isTrue = /\\True/i.test(text);
@@ -165,7 +205,15 @@ function parseChoicesMC(choiceStr: string): { options: string[]; correctIndex: n
   const options: string[] = [];
   let correctIndex = 0;
 
-  const body = choiceStr.replace(/^\\choice\s*/i, '').trim();
+  // Remove \choice or \choice[1] or \choice[2] etc.
+  let body = choiceStr.replace(/^\\choice(?:\s*\[.*?\])?\s*/i, '').trim();
+
+  // Strip \begin{listEX}... \end{listEX} or \begin{enumEX}... \end{enumEX} outer wrappers
+  body = body
+    .replace(/\\begin\{(listEX|enumEX)\}(?:\[.*?\])*(?:\{.*?\})*/gi, '')
+    .replace(/\\end\{(listEX|enumEX)\}/gi, '')
+    .trim();
+
   const braceBlocks = extractBraceBlocks(body);
 
   if (braceBlocks.length >= 4) {
@@ -178,7 +226,7 @@ function parseChoicesMC(choiceStr: string): { options: string[]; correctIndex: n
       options.push(cleanTeXString(text));
     });
   } else {
-    const items = body.split(/\\item|\\choice/i).filter((s) => s.trim().length > 0);
+    const items = body.split(/\\item|\\choice|\\task/i).filter((s) => s.trim().length > 0);
     items.slice(0, 4).forEach((rawOpt, idx) => {
       let text = rawOpt.trim();
       if (/\\True/i.test(text)) {
@@ -217,18 +265,77 @@ function extractBraceBlocks(str: string): string[] {
   return blocks;
 }
 
+function unwrapImmini(str: string): string {
+  let result = str;
+  let guard = 0;
+  
+  while (guard < 100) {
+    guard++;
+    const imminiIndex = result.search(/\\immini\s*\{/i);
+    if (imminiIndex === -1) break;
+
+    const afterKeyword = result.substring(imminiIndex);
+    const firstBraceIdx = afterKeyword.indexOf('{');
+    if (firstBraceIdx === -1) break;
+
+    let depth = 0;
+    let blockCount = 0;
+    let endIdx = -1;
+    const blocks: string[] = ['', ''];
+
+    for (let i = firstBraceIdx; i < afterKeyword.length; i++) {
+      const char = afterKeyword[i];
+      if (char === '{') {
+        if (depth > 0) blocks[blockCount] += char;
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          blockCount++;
+          if (blockCount === 2) {
+            endIdx = i + 1;
+            break;
+          }
+        } else {
+          blocks[blockCount] += char;
+        }
+      } else if (depth > 0) {
+        blocks[blockCount] += char;
+      }
+    }
+
+    if (endIdx !== -1 && blockCount === 2) {
+      const fullMatch = afterKeyword.substring(0, endIdx);
+      const replacement = `${blocks[0]}\n\n${blocks[1]}`;
+      result = result.substring(0, imminiIndex) + replacement + result.substring(imminiIndex + fullMatch.length);
+    } else {
+      break;
+    }
+  }
+
+  return result;
+}
+
 function cleanTeXString(str: string): string {
   if (!str) return '';
 
-  return str
-    .replace(/\\immini\{[\s\S]*?\}\{[\s\S]*?\}/gi, '')
+  let cleaned = str;
+  cleaned = unwrapImmini(cleaned);
+
+  return cleaned
+    .replace(/\\begin\{(listEX|enumEX)\}(?:\[.*?\])*(?:\{.*?\})*/gi, '')
+    .replace(/\\end\{(listEX|enumEX)\}/gi, '')
+    .replace(/\\begin\{center\}/gi, '')
+    .replace(/\\end\{center\}/gi, '')
+    .replace(/\\item\s*/gi, '\n• ')
+    .replace(/\\task\s*/gi, '\n• ')
     .replace(/\\noindent/gi, '')
     .replace(/\\textbf\{([\s\S]*?)\}/gi, '$1')
     .replace(/\\textit\{([\s\S]*?)\}/gi, '$1')
     .replace(/\\text\{([\s\S]*?)\}/gi, '$1')
     .replace(/\\mathrm\{([\s\S]*?)\}/gi, '$1')
-    .replace(/\\begin\{center\}[\s\S]*?\\end\{center\}/gi, '')
     .replace(/\\hfill/gi, '')
     .replace(/\\vspace\{.*?\}|\\hspace\{.*?\}/gi, '')
     .trim();
 }
+

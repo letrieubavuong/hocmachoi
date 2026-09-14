@@ -1,6 +1,7 @@
 import React from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { TikZRenderer } from './TikZRenderer';
 
 interface MathRendererProps {
   text: string;
@@ -17,6 +18,10 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ text, className = ''
       {parts.map((part, index) => {
         if (part.type === 'text') {
           return <span key={index}>{part.content}</span>;
+        }
+
+        if (part.type === 'tikz') {
+          return <TikZRenderer key={index} code={part.content} />;
         }
 
         try {
@@ -41,13 +46,13 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ text, className = ''
 };
 
 interface MathPart {
-  type: 'text' | 'inline' | 'block';
+  type: 'text' | 'inline' | 'block' | 'tikz';
   content: string;
 }
 
 function parseMathParts(text: string): MathPart[] {
   const parts: MathPart[] = [];
-  const mathRegex = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[\s\S]*?\$|\\\([\s\S]*?\\\))/g;
+  const mathRegex = /(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[\s\S]*?\$|\\\([\s\S]*?\\\))/g;
   let match: RegExpExecArray | null;
   let lastIndex = 0;
 
@@ -61,7 +66,9 @@ function parseMathParts(text: string): MathPart[] {
     }
 
     const rawMatch = match[0];
-    if (rawMatch.startsWith('$$') && rawMatch.endsWith('$$')) {
+    if (rawMatch.startsWith('\\begin{tikzpicture}')) {
+      parts.push({ type: 'tikz', content: rawMatch });
+    } else if (rawMatch.startsWith('$$') && rawMatch.endsWith('$$')) {
       parts.push({ type: 'block', content: rawMatch.slice(2, -2) });
     } else if (rawMatch.startsWith('\\[') && rawMatch.endsWith('\\]')) {
       parts.push({ type: 'block', content: rawMatch.slice(2, -2) });
@@ -83,3 +90,4 @@ function parseMathParts(text: string): MathPart[] {
 
   return parts;
 }
+

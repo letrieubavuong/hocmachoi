@@ -132,5 +132,23 @@ export const SAMPLE_QUIZZES: Quiz[] = [
         explanation: 'Bạn không thể lấy tay phải tự nắm khuỷu tay phải của chính mình!'
       }
     ]
+  },
+  {
+    id: 'toan-tikz-demo',
+    title: '🎨 Đồ Họa Toán - Sơ Đồ Hình TikZ Auto Render',
+    subject: 'Toán Học & TikZ',
+    description: 'Thử nghiệm khả năng vẽ sơ đồ hình TikZ tự động trực tiếp trên trình duyệt!',
+    questions: [
+      {
+        id: 'tikz-q1',
+        questionText: 'Cho hình tam giác vuông $ABC$ vuông tại $A$ như hình vẽ bên dưới. Hãy tính diện tích tam giác $ABC$ biết $AB = 3$, $AC = 4$:\n\n\\begin{tikzpicture}\n\\draw[thick, fill=purple!20] (0,0) node[below left]{$A$} -- (4,0) node[below right]{$C$} -- (0,3) node[above left]{$B$} -- cycle;\n\\draw (0.3,0) -- (0.3,0.3) -- (0,0.3);\n\\node at (2,-0.4) {$4$};\n\\node at (-0.4,1.5) {$3$};\n\\end{tikzpicture}',
+        options: ['$S = 6$', '$S = 12$', '$S = 5$', '$S = 7$'],
+        correctIndex: 0,
+        timeLimit: 25,
+        points: 150,
+        explanation: 'Diện tích tam giác vuông bằng $\\frac{1}{2} \\cdot AB \\cdot AC = \\frac{1}{2} \\cdot 3 \\cdot 4 = 6$.'
+      }
+    ]
   }
 ];
+
