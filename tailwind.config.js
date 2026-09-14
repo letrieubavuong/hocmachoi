@@ -26,7 +26,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['Fredoka', 'Quicksand', 'Nunito', 'sans-serif'],
+        sans: ['"Be Vietnam Pro"', 'Nunito', 'Lexend', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Roboto', 'sans-serif'],
       },
       animation: {
         'bounce-slow': 'bounce 2s infinite',
