@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Question, Player } from '../types';
 import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
-import { Flame, Shield, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { getRankTier } from '../data/rankAssets';
+import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge } from 'lucide-react';
 
 interface QuizCardProps {
   question: Question;
@@ -22,11 +23,19 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const [timeLeft, setTimeLeft] = useState(question.timeLimit || 20);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
+  const [lastEarnedScore, setLastEarnedScore] = useState<{
+    base: number;
+    speedBonus: number;
+    multiplier: number;
+    total: number;
+    speedRating: string;
+  } | null>(null);
 
   useEffect(() => {
     setTimeLeft(question.timeLimit || 20);
     setSelectedOption(null);
     setIsAnswered(false);
+    setLastEarnedScore(null);
   }, [question]);
 
   useEffect(() => {
@@ -51,8 +60,32 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     const isCorrect = index === question.correctIndex;
     const timeSpent = (question.timeLimit || 20) - timeLeft;
 
+    let speedBonus = 0;
+    let speedRating = 'Thường';
+    if (timeSpent <= 3) {
+      speedBonus = 150;
+      speedRating = '⚡ TỐC ĐỘ SIÊU THẦN! (+150 PT)';
+    } else if (timeSpent <= 6) {
+      speedBonus = 100;
+      speedRating = '🚀 TỐC ĐỘ ÁNH SÁNG! (+100 PT)';
+    } else if (timeSpent <= 10) {
+      speedBonus = 50;
+      speedRating = '💨 TỐC ĐỘ NHANH NHẸN (+50 PT)';
+    }
+
+    const basePoints = question.points || 100;
+    const multiplier = player && player.streak >= 2 ? 1.5 : 1;
+    const totalEarned = isCorrect ? Math.round((basePoints + speedBonus) * multiplier) : 0;
+
     if (isCorrect) {
       soundManager.playCorrect();
+      setLastEarnedScore({
+        base: basePoints,
+        speedBonus,
+        multiplier,
+        total: totalEarned,
+        speedRating,
+      });
     } else {
       soundManager.playWrong();
     }
@@ -69,38 +102,50 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
   const optionLabels = ['A', 'B', 'C', 'D'];
   const timerPercent = (timeLeft / (question.timeLimit || 20)) * 100;
+  const currentRank = player ? getRankTier(player.score) : null;
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
-      {/* Question Header & Player Stats */}
-      <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800 p-4 rounded-2xl shadow-lg">
+      {/* Question Header & Player Stats & Lien Quan Rank */}
+      <div className="flex flex-wrap items-center justify-between bg-slate-900/90 border border-slate-800 p-4 rounded-2xl shadow-lg gap-3">
         <div className="flex items-center gap-3">
           <span className="px-3 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/50 rounded-xl font-black text-sm">
             Câu {questionNumber} / {totalQuestions}
           </span>
-          {player && (
-            <div className="flex items-center gap-3">
-              <span className="text-yellow-400 font-extrabold text-base">{player.score} Điểm</span>
+          {player && currentRank && (
+            <div className="flex items-center gap-2">
+              <span className={`px-2.5 py-1 rounded-xl text-xs font-black bg-gradient-to-r ${currentRank.bgGradient} text-white shadow-md flex items-center gap-1`}>
+                <span>{currentRank.icon}</span>
+                <span>{currentRank.name}</span>
+              </span>
+              <span className="text-yellow-400 font-extrabold text-sm">{player.score} PT</span>
               {player.streak > 0 && (
-                <span className="flex items-center gap-1 text-amber-400 font-black text-xs bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                  <Flame className="w-3.5 h-3.5" /> {player.streak} Chuỗi
+                <span className="flex items-center gap-1 text-amber-400 font-black text-xs bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/30">
+                  <Flame className="w-3.5 h-3.5" /> {player.streak}
                 </span>
               )}
               {player.shieldActive && (
-                <span className="flex items-center gap-1 text-cyan-400 font-black text-xs bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/30">
-                  <Shield className="w-3.5 h-3.5" /> Có Khiên
+                <span className="flex items-center gap-1 text-cyan-400 font-black text-xs bg-cyan-500/10 px-2 py-1 rounded-lg border border-cyan-500/30">
+                  <Shield className="w-3.5 h-3.5" /> Khiên
                 </span>
               )}
             </div>
           )}
         </div>
 
-        {/* Timer Bar & Badge */}
-        <div className="flex items-center gap-2">
-          <Clock className={`w-5 h-5 ${timeLeft <= 5 ? 'text-red-400 animate-ping' : 'text-slate-400'}`} />
-          <span className={`font-black text-2xl font-mono ${timeLeft <= 5 ? 'text-red-400' : 'text-white'}`}>
-            {timeLeft}s
-          </span>
+        {/* Speed Timer & Live Speed Rating Bar */}
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-1 text-xs font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30 animate-pulse">
+            <Zap className="w-4 h-4 text-yellow-400" />
+            <span>Đua Tốc Độ Nhanh = Thưởng Điểm Cao!</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Clock className={`w-5 h-5 ${timeLeft <= 5 ? 'text-red-400 animate-ping' : 'text-slate-400'}`} />
+            <span className={`font-black text-2xl font-mono ${timeLeft <= 5 ? 'text-red-400' : 'text-white'}`}>
+              {timeLeft}s
+            </span>
+          </div>
         </div>
       </div>
 
@@ -108,7 +153,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
         <div 
           className={`h-full transition-all duration-1000 ease-linear ${
-            timeLeft <= 5 ? 'bg-red-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'
+            timeLeft <= 5 ? 'bg-red-500' : 'bg-gradient-to-r from-yellow-400 via-amber-500 to-pink-500'
           }`}
           style={{ width: `${timerPercent}%` }}
         />
@@ -163,20 +208,44 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         </div>
       </div>
 
-      {/* Instant Result Feedback Banner */}
+      {/* Speed Bonus & Instant Result Feedback Banner */}
       {isAnswered && (
-        <div className={`p-4 rounded-2xl text-center font-black text-lg border animate-bounce ${
+        <div className={`p-5 rounded-2xl text-center font-black border space-y-2 animate-bounce ${
           selectedOption === question.correctIndex 
             ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300' 
             : 'bg-rose-600/30 border-rose-500 text-rose-300'
         }`}>
           {selectedOption === question.correctIndex ? (
-            <span>🎉 CHÍNH XÁC! Bạn nhận được điểm thưởng + Chuỗi!</span>
+            <div className="space-y-1">
+              <span className="text-xl block">🎉 CHÍNH XÁC HOÀN HẢO!</span>
+              {lastEarnedScore && (
+                <div className="flex flex-wrap items-center justify-center gap-3 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-emerald-500/40 text-yellow-300">
+                  <span className="flex items-center gap-1 text-amber-400 font-extrabold">
+                    <Gauge className="w-4 h-4" /> {lastEarnedScore.speedRating}
+                  </span>
+                  <span>•</span>
+                  <span>Cơ bản: {lastEarnedScore.base}pt</span>
+                  <span>+</span>
+                  <span>Tốc độ: +{lastEarnedScore.speedBonus}pt</span>
+                  {lastEarnedScore.multiplier > 1 && (
+                    <>
+                      <span>x</span>
+                      <span className="text-amber-400 font-extrabold">Chuỗi {lastEarnedScore.multiplier}x</span>
+                    </>
+                  )}
+                  <span>=</span>
+                  <span className="text-sm font-black text-yellow-400 bg-yellow-500/20 px-2 py-0.5 rounded-lg border border-yellow-400/50">
+                    +{lastEarnedScore.total} Điểm!
+                  </span>
+                </div>
+              )}
+            </div>
           ) : (
-            <span>❌ CHƯA CHÍNH XÁC! Hãy cố gắng ở câu tiếp theo!</span>
+            <span className="text-lg block">❌ CHƯA CHÍNH XÁC! Hãy cố gắng tăng tốc ở câu tiếp theo!</span>
           )}
+
           {question.explanation && (
-            <div className="text-xs font-semibold text-slate-300 mt-2">
+            <div className="text-xs font-semibold text-slate-300 pt-1 border-t border-slate-700/50">
               <MathRenderer text={question.explanation} />
             </div>
           )}
