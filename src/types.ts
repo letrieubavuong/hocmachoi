@@ -11,6 +11,31 @@ export interface ChibiCustomization {
 
 export type PowerUpType = 'ATTACK' | 'SHIELD' | 'DOUBLE_POINTS' | 'FREEZE' | 'MYSTERY_BOX';
 
+export type QuestionType = 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
+
+export interface Question {
+  id: string;
+  type?: QuestionType; // 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER'
+  questionText: string;
+  options: string[]; // For MULTIPLE_CHOICE (4 choices) or TRUE_FALSE (4 statements: a, b, c, d)
+  correctIndex?: number; // For MULTIPLE_CHOICE (0, 1, 2, 3)
+  tfAnswers?: boolean[]; // For TRUE_FALSE (4 booleans: e.g. [true, false, true, false])
+  shortAnswerText?: string; // For SHORT_ANSWER (e.g. "3.5" or "12")
+  timeLimit: number; // in seconds
+  points: number;
+  explanation?: string;
+}
+
+export interface Quiz {
+  id: string;
+  title: string;
+  description: string;
+  subject: string;
+  questions: Question[];
+}
+
+export type GamePhase = 'LOBBY' | 'QUESTION' | 'RESULT' | 'ATTACK' | 'LEADERBOARD' | 'FINISHED';
+
 export interface Player {
   id: string;
   name: string;
@@ -33,26 +58,6 @@ export interface Player {
   isReady: boolean;
   joinedAt: number;
 }
-
-export interface Question {
-  id: string;
-  questionText: string;
-  options: string[];
-  correctIndex: number;
-  timeLimit: number; // in seconds
-  points: number;
-  explanation?: string;
-}
-
-export interface Quiz {
-  id: string;
-  title: string;
-  description: string;
-  subject: string;
-  questions: Question[];
-}
-
-export type GamePhase = 'LOBBY' | 'QUESTION' | 'RESULT' | 'ATTACK' | 'LEADERBOARD' | 'FINISHED';
 
 export interface GameRoom {
   roomCode: string;
