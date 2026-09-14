@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Question, Player } from '../types';
 import { soundManager } from '../services/audio';
+import { MathRenderer } from './MathRenderer';
 import { Flame, Shield, Clock, CheckCircle2, XCircle } from 'lucide-react';
 
 interface QuizCardProps {
@@ -18,12 +19,12 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   player,
   onAnswerSubmit,
 }) => {
-  const [timeLeft, setTimeLeft] = useState(question.timeLimit);
+  const [timeLeft, setTimeLeft] = useState(question.timeLimit || 20);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
 
   useEffect(() => {
-    setTimeLeft(question.timeLimit);
+    setTimeLeft(question.timeLimit || 20);
     setSelectedOption(null);
     setIsAnswered(false);
   }, [question]);
@@ -31,7 +32,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   useEffect(() => {
     if (isAnswered) return;
     if (timeLeft <= 0) {
-      handleSelect(-1); // Time out
+      handleSelect(-1);
       return;
     }
 
@@ -48,7 +49,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setSelectedOption(index);
 
     const isCorrect = index === question.correctIndex;
-    const timeSpent = question.timeLimit - timeLeft;
+    const timeSpent = (question.timeLimit || 20) - timeLeft;
 
     if (isCorrect) {
       soundManager.playCorrect();
@@ -67,8 +68,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   ];
 
   const optionLabels = ['A', 'B', 'C', 'D'];
-
-  const timerPercent = (timeLeft / question.timeLimit) * 100;
+  const timerPercent = (timeLeft / (question.timeLimit || 20)) * 100;
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -117,7 +117,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       {/* Main Question Card */}
       <div className="bg-slate-800/90 backdrop-blur-xl p-8 rounded-3xl border-2 border-purple-500/30 shadow-2xl text-center relative overflow-hidden">
         <h2 className="text-2xl md:text-3xl font-black text-white leading-relaxed mb-6">
-          {question.questionText}
+          <MathRenderer text={question.questionText} />
         </h2>
 
         {/* 4 Options Grid */}
@@ -147,7 +147,9 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                 <span className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center font-black text-lg mr-4 border border-white/20 shrink-0">
                   {optionLabels[idx]}
                 </span>
-                <span className="text-lg md:text-xl flex-1 pr-6">{option}</span>
+                <span className="text-lg md:text-xl flex-1 pr-6">
+                  <MathRenderer text={option} />
+                </span>
 
                 {isAnswered && isCorrectOption && (
                   <CheckCircle2 className="w-7 h-7 text-white absolute right-4" />
@@ -174,7 +176,9 @@ export const QuizCard: React.FC<QuizCardProps> = ({
             <span>❌ CHƯA CHÍNH XÁC! Hãy cố gắng ở câu tiếp theo!</span>
           )}
           {question.explanation && (
-            <p className="text-xs font-semibold text-slate-300 mt-1">{question.explanation}</p>
+            <div className="text-xs font-semibold text-slate-300 mt-2">
+              <MathRenderer text={question.explanation} />
+            </div>
           )}
         </div>
       )}
