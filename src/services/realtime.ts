@@ -1,12 +1,19 @@
 import { GameRoom, Player, Quiz, GamePhase, AttackEvent } from '../types';
+import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
 const STORAGE_KEY_PREFIX = 'chibi_quiz_room_';
+const PEER_PREFIX = 'chibi-room-v1-';
 
 export class RealtimeService {
   private channel: BroadcastChannel | null = null;
   private listeners: Array<(room: GameRoom) => void> = [];
   private currentRoomCode: string | null = null;
+
+  // PeerJS Cross-Device WebRTC Engine
+  private peer: Peer | null = null;
+  private connections: Map<string, DataConnection> = new Map();
+  private hostConnection: DataConnection | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -35,7 +42,7 @@ export class RealtimeService {
     }
   }
 
-  // Create a new room as Host
+  // Host: Create a new room with PeerJS listener for phones
   public createRoom(quiz: Quiz, hostId: string): GameRoom {
     const roomCode = Math.floor(100000 + Math.random() * 900000).toString();
     const room: GameRoom = {
@@ -52,25 +59,113 @@ export class RealtimeService {
 
     this.saveAndBroadcast(room);
     this.currentRoomCode = roomCode;
+    this.initHostPeer(roomCode);
+
     return room;
   }
 
-  // Join a room as Player (Includes Late-Join support!)
+  // Initialize Host PeerJS listener to receive phone connections
+  private initHostPeer(roomCode: string) {
+    try {
+      if (this.peer) this.peer.destroy();
+      this.peer = new Peer(`${PEER_PREFIX}${roomCode}`);
+
+      this.peer.on('connection', (conn) => {
+        this.connections.set(conn.peer, conn);
+
+        conn.on('data', (data: any) => {
+          if (data?.type === 'JOIN_PLAYER') {
+            const currentRoom = this.getRoom(roomCode);
+            if (currentRoom) {
+              const updatedRoom = {
+                ...currentRoom,
+                players: { ...currentRoom.players, [data.player.id]: data.player },
+                updatedAt: Date.now(),
+              };
+              this.saveAndBroadcast(updatedRoom);
+              this.broadcastToPeerClients(updatedRoom);
+            }
+          } else if (data?.type === 'SUBMIT_ANSWER') {
+            this.updatePlayerStats(roomCode, data.playerId, data.scoreToAdd, data.isCorrect);
+          } else if (data?.type === 'EXECUTE_ATTACK') {
+            this.executeAttack(roomCode, data.attackerId, data.targetId);
+          }
+        });
+
+        conn.on('close', () => {
+          this.connections.delete(conn.peer);
+        });
+
+        // Send current room state immediately upon phone connect
+        const room = this.getRoom(roomCode);
+        if (room) {
+          conn.send({ type: 'ROOM_UPDATE', room });
+        }
+      });
+    } catch (e) {
+      console.warn('PeerJS init failed, falling back to local channel:', e);
+    }
+  }
+
+  // Student: Join Room (Handles Phone to PC Cross-Device Sync & Late-Join!)
   public joinRoom(roomCode: string, player: Player): GameRoom | null {
-    const room = this.getRoom(roomCode);
-    if (!room) return null;
-
-    // Check if player already exists
-    const updatedPlayers = { ...room.players, [player.id]: player };
-    const updatedRoom: GameRoom = {
-      ...room,
-      players: updatedPlayers,
-      updatedAt: Date.now(),
-    };
-
-    this.saveAndBroadcast(updatedRoom);
     this.currentRoomCode = roomCode;
-    return updatedRoom;
+
+    // Check local storage first (same device / multi-tab)
+    let room = this.getRoom(roomCode);
+
+    // Initialize Student PeerJS to connect to Host PC
+    try {
+      if (this.peer) this.peer.destroy();
+      this.peer = new Peer();
+
+      this.peer.on('open', () => {
+        const hostPeerId = `${PEER_PREFIX}${roomCode}`;
+        const conn = this.peer!.connect(hostPeerId);
+        this.hostConnection = conn;
+
+        conn.on('open', () => {
+          conn.send({ type: 'JOIN_PLAYER', player });
+        });
+
+        conn.on('data', (data: any) => {
+          if (data?.type === 'ROOM_UPDATE' && data.room) {
+            this.saveLocalOnly(data.room);
+            this.notifyListeners(data.room);
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Student PeerJS connect fallback:', e);
+    }
+
+    // Fallback/Local update
+    if (!room) {
+      // Create temporary fallback state while peer syncing
+      room = {
+        roomCode,
+        hostId: 'remote-host',
+        quiz: {
+          id: 'remote-quiz',
+          title: 'Đang Tải Đề Thi Từ Giáo Viên...',
+          subject: 'KHTN / Toán',
+          description: 'Vui lòng chờ giây lát...',
+          questions: [],
+        },
+        phase: 'LOBBY',
+        currentQuestionIndex: 0,
+        questionStartTime: Date.now(),
+        players: { [player.id]: player },
+        attacks: [],
+        updatedAt: Date.now(),
+      };
+    } else {
+      const updatedPlayers = { ...room.players, [player.id]: player };
+      room = { ...room, players: updatedPlayers, updatedAt: Date.now() };
+    }
+
+    this.saveAndBroadcast(room);
+    return room;
   }
 
   // Update Game Phase (e.g. Start Game -> 'QUESTION', Next -> 'RESULT', etc.)
@@ -88,6 +183,7 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
     return updatedRoom;
   }
 
@@ -103,8 +199,7 @@ export class RealtimeService {
 
     const player = room.players[playerId];
     const newStreak = isCorrect ? player.streak + 1 : 0;
-    
-    // Auto-gain shield on 2 streak
+
     let newShieldActive = player.shieldActive;
     let newShieldCount = player.shieldCount;
     if (newStreak >= 2 && !player.shieldActive) {
@@ -112,7 +207,6 @@ export class RealtimeService {
       newShieldCount += 1;
     }
 
-    // Gain attack card on 3 streak
     const newAttackReady = newStreak >= 3;
 
     const updatedPlayer: Player = {
@@ -134,6 +228,18 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    // If client student connected to remote host, send action
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'SUBMIT_ANSWER',
+        playerId,
+        scoreToAdd: deltaScore,
+        isCorrect,
+      });
+    }
+
     return updatedRoom;
   }
 
@@ -156,7 +262,6 @@ export class RealtimeService {
     const updatedAttacker = { ...attacker, attackCardReady: false };
 
     if (target.shieldActive) {
-      // SHIELD BLOCKS THE ATTACK!
       blocked = true;
       updatedTarget.shieldActive = false;
       updatedTarget.shieldCount = Math.max(0, target.shieldCount - 1);
@@ -167,7 +272,6 @@ export class RealtimeService {
         timestamp: Date.now(),
       };
     } else {
-      // ATTACK SUCCEEDS: Steal 20% of target points (min 30 pts)
       blocked = false;
       stolenPoints = Math.max(30, Math.round(target.score * 0.2));
       updatedTarget.score = Math.max(0, target.score - stolenPoints);
@@ -204,7 +308,26 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'EXECUTE_ATTACK',
+        attackerId,
+        targetId,
+      });
+    }
+
     return { success: true, blocked, stolenPoints };
+  }
+
+  // Broadcast state to all connected PeerJS clients (Mobile Phones)
+  private broadcastToPeerClients(room: GameRoom) {
+    this.connections.forEach((conn) => {
+      if (conn.open) {
+        conn.send({ type: 'ROOM_UPDATE', room });
+      }
+    });
   }
 
   // Get current room state
@@ -224,7 +347,6 @@ export class RealtimeService {
     this.currentRoomCode = roomCode;
     this.listeners.push(callback);
 
-    // Initial state push
     const initial = this.getRoom(roomCode);
     if (initial) {
       callback(initial);
@@ -233,6 +355,11 @@ export class RealtimeService {
     return () => {
       this.listeners = this.listeners.filter((cb) => cb !== callback);
     };
+  }
+
+  private saveLocalOnly(room: GameRoom) {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}${room.roomCode}`, JSON.stringify(room));
   }
 
   private saveAndBroadcast(room: GameRoom) {
