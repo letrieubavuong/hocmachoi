@@ -3,14 +3,14 @@ import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
 const STORAGE_KEY_PREFIX = 'chibi_quiz_room_';
-const PEER_PREFIX = 'chibi-room-v1-';
+const PEER_PREFIX = 'chibi-room-v2-';
 
 export class RealtimeService {
   private channel: BroadcastChannel | null = null;
   private listeners: Array<(room: GameRoom) => void> = [];
   private currentRoomCode: string | null = null;
 
-  // PeerJS Cross-Device WebRTC Engine
+  // PeerJS Cross-Device Engine
   private peer: Peer | null = null;
   private connections: Map<string, DataConnection> = new Map();
   private hostConnection: DataConnection | null = null;
@@ -42,7 +42,7 @@ export class RealtimeService {
     }
   }
 
-  // Host: Create a new room with PeerJS listener for phones
+  // Host: Create a new room with PeerJS listener for remote phones
   public createRoom(quiz: Quiz, hostId: string): GameRoom {
     const roomCode = Math.floor(100000 + Math.random() * 900000).toString();
     const room: GameRoom = {
@@ -68,16 +68,26 @@ export class RealtimeService {
   private initHostPeer(roomCode: string) {
     try {
       if (this.peer) this.peer.destroy();
-      this.peer = new Peer(`${PEER_PREFIX}${roomCode}`);
+      
+      // Clean peer ID for host
+      const peerId = `${PEER_PREFIX}${roomCode}`;
+      this.peer = new Peer(peerId, {
+        debug: 1,
+      });
+
+      this.peer.on('open', (id) => {
+        console.log('Host PeerJS initialized successfully:', id);
+      });
 
       this.peer.on('connection', (conn) => {
+        console.log('New student connected via PeerJS:', conn.peer);
         this.connections.set(conn.peer, conn);
 
         conn.on('data', (data: any) => {
           if (data?.type === 'JOIN_PLAYER') {
             const currentRoom = this.getRoom(roomCode);
             if (currentRoom) {
-              const updatedRoom = {
+              const updatedRoom: GameRoom = {
                 ...currentRoom,
                 players: { ...currentRoom.players, [data.player.id]: data.player },
                 updatedAt: Date.now(),
@@ -96,79 +106,92 @@ export class RealtimeService {
           this.connections.delete(conn.peer);
         });
 
-        // Send current room state immediately upon phone connect
-        const room = this.getRoom(roomCode);
-        if (room) {
-          conn.send({ type: 'ROOM_UPDATE', room });
+        // Send current room state immediately upon student connect
+        const currentRoom = this.getRoom(roomCode);
+        if (currentRoom) {
+          conn.send({ type: 'ROOM_UPDATE', room: currentRoom });
         }
       });
+
+      this.peer.on('error', (err) => {
+        console.warn('Host PeerJS warning:', err);
+      });
     } catch (e) {
-      console.warn('PeerJS init failed, falling back to local channel:', e);
+      console.warn('PeerJS init failed:', e);
     }
   }
 
-  // Student: Join Room (Handles Phone to PC Cross-Device Sync & Late-Join!)
+  // Student: Join Room (Handles Remote Phone to PC Sync & Late-Join!)
   public joinRoom(roomCode: string, player: Player): GameRoom | null {
     this.currentRoomCode = roomCode;
 
-    // Check local storage first (same device / multi-tab)
+    // Check local storage first (for same device / multi-tab test)
     let room = this.getRoom(roomCode);
 
     // Initialize Student PeerJS to connect to Host PC
     try {
       if (this.peer) this.peer.destroy();
-      this.peer = new Peer();
+      this.peer = new Peer({ debug: 1 });
 
       this.peer.on('open', () => {
         const hostPeerId = `${PEER_PREFIX}${roomCode}`;
-        const conn = this.peer!.connect(hostPeerId);
+        console.log('Student attempting WebRTC connection to Host:', hostPeerId);
+        const conn = this.peer!.connect(hostPeerId, { reliable: true });
         this.hostConnection = conn;
 
         conn.on('open', () => {
+          console.log('WebRTC connection established with Host PC!');
           conn.send({ type: 'JOIN_PLAYER', player });
         });
 
         conn.on('data', (data: any) => {
           if (data?.type === 'ROOM_UPDATE' && data.room) {
+            console.log('Received room state update from Host PC');
             this.saveLocalOnly(data.room);
             this.notifyListeners(data.room);
           }
         });
+
+        conn.on('error', (err) => {
+          console.warn('Connection to host error:', err);
+        });
       });
     } catch (e) {
-      console.warn('Student PeerJS connect fallback:', e);
+      console.warn('Student PeerJS connect error:', e);
     }
 
-    // Fallback/Local update
-    if (!room) {
-      // Create temporary fallback state while peer syncing
-      room = {
-        roomCode,
-        hostId: 'remote-host',
-        quiz: {
-          id: 'remote-quiz',
-          title: 'Đang Tải Đề Thi Từ Giáo Viên...',
-          subject: 'KHTN / Toán',
-          description: 'Vui lòng chờ giây lát...',
-          questions: [],
-        },
-        phase: 'LOBBY',
-        currentQuestionIndex: 0,
-        questionStartTime: Date.now(),
-        players: { [player.id]: player },
-        attacks: [],
-        updatedAt: Date.now(),
-      };
-    } else {
+    // If local room exists (same tab/browser)
+    if (room) {
       const updatedPlayers = { ...room.players, [player.id]: player };
       room = { ...room, players: updatedPlayers, updatedAt: Date.now() };
+      this.saveAndBroadcast(room);
+      return room;
     }
 
-    this.saveAndBroadcast(room);
-    return room;
+    // Initial placeholder room while PeerJS syncs state from Host PC
+    const initialPlaceholderRoom: GameRoom = {
+      roomCode,
+      hostId: 'remote-host',
+      quiz: {
+        id: 'remote-quiz',
+        title: 'Đang Kết Nối Phòng Giáo Viên...',
+        subject: 'Quiz Game',
+        description: 'Đang đồng bộ dữ liệu thời gian thực...',
+        questions: [],
+      },
+      phase: 'LOBBY',
+      currentQuestionIndex: 0,
+      questionStartTime: Date.now(),
+      players: { [player.id]: player },
+      attacks: [],
+      updatedAt: Date.now(),
+    };
+
+    this.saveLocalOnly(initialPlaceholderRoom);
+    return initialPlaceholderRoom;
   }
 
-  // Update Game Phase (e.g. Start Game -> 'QUESTION', Next -> 'RESULT', etc.)
+  // Host: Update Game Phase (e.g. Start Game -> 'QUESTION', Next -> 'RESULT', etc.)
   public updatePhase(roomCode: string, phase: GamePhase, questionIndex?: number): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room) return null;
@@ -230,7 +253,6 @@ export class RealtimeService {
     this.saveAndBroadcast(updatedRoom);
     this.broadcastToPeerClients(updatedRoom);
 
-    // If client student connected to remote host, send action
     if (this.hostConnection && this.hostConnection.open) {
       this.hostConnection.send({
         type: 'SUBMIT_ANSWER',
@@ -321,7 +343,6 @@ export class RealtimeService {
     return { success: true, blocked, stolenPoints };
   }
 
-  // Broadcast state to all connected PeerJS clients (Mobile Phones)
   private broadcastToPeerClients(room: GameRoom) {
     this.connections.forEach((conn) => {
       if (conn.open) {
@@ -330,7 +351,6 @@ export class RealtimeService {
     });
   }
 
-  // Get current room state
   public getRoom(roomCode: string): GameRoom | null {
     if (typeof window === 'undefined') return null;
     const data = localStorage.getItem(`${STORAGE_KEY_PREFIX}${roomCode}`);
@@ -342,7 +362,6 @@ export class RealtimeService {
     }
   }
 
-  // Subscribe to real-time updates for active room
   public subscribe(roomCode: string, callback: (room: GameRoom) => void): () => void {
     this.currentRoomCode = roomCode;
     this.listeners.push(callback);

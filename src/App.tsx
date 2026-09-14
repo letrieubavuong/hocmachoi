@@ -90,16 +90,10 @@ export function App() {
     soundManager.playBGM();
   };
 
-  // Student: Join Room (Handles Late-Join!)
+  // Student: Join Room (Connects via PeerJS WebRTC to Host PC!)
   const handleJoinAsPlayer = (name: string, chibi: ChibiCustomization) => {
     const code = roomCodeInput.trim();
     if (!code) return;
-
-    const targetRoom = realtime.getRoom(code);
-    if (!targetRoom) {
-      alert('Không tìm thấy phòng với mã PIN này! Vui lòng kiểm tra lại.');
-      return;
-    }
 
     const playerId = `player-${Date.now()}`;
     const newPlayer: Player = {
@@ -115,13 +109,14 @@ export function App() {
       joinedAt: Date.now(),
     };
 
+    setPlayer(newPlayer);
+    setShowCustomizer(false);
+
     const updatedRoom = realtime.joinRoom(code, newPlayer);
     if (updatedRoom) {
-      setPlayer(newPlayer);
       setRoom(updatedRoom);
-      setShowCustomizer(false);
-      soundManager.playBGM();
     }
+    soundManager.playBGM();
   };
 
   // Host: Start Game
@@ -150,11 +145,10 @@ export function App() {
 
     const currentQ = room.quiz.questions[room.currentQuestionIndex];
     let scoreToAdd = 0;
-    if (isCorrect) {
-      // Base score + Speed bonus
+    if (isCorrect && currentQ) {
       const speedBonus = Math.max(10, Math.round((currentQ.timeLimit - timeSpentSec) * 5));
       const streakMultiplier = player.streak >= 2 ? 1.5 : 1;
-      scoreToAdd = Math.round((currentQ.points + speedBonus) * streakMultiplier);
+      scoreToAdd = Math.round(((currentQ.points || 100) + speedBonus) * streakMultiplier);
     }
 
     const updatedRoom = realtime.updatePlayerStats(room.roomCode, player.id, scoreToAdd, isCorrect);
@@ -401,7 +395,14 @@ export function App() {
 
     // Step 3: Question Active Phase
     if (room.phase === 'QUESTION') {
-      const currentQ = room.quiz.questions[room.currentQuestionIndex];
+      const currentQ = room.quiz.questions[room.currentQuestionIndex] || {
+        id: 'fallback-q',
+        questionText: 'Đang tải câu hỏi từ Giáo viên...',
+        options: ['Lựa chọn A', 'Lựa chọn B', 'Lựa chọn C', 'Lựa chọn D'],
+        correctIndex: 0,
+        timeLimit: 20,
+        points: 100,
+      };
       const opponents = Object.values(room.players);
 
       return (
@@ -409,7 +410,7 @@ export function App() {
           <QuizCard
             question={currentQ}
             questionNumber={room.currentQuestionIndex + 1}
-            totalQuestions={room.quiz.questions.length}
+            totalQuestions={room.quiz.questions.length || 1}
             player={player}
             onAnswerSubmit={handleAnswerSubmit}
           />
@@ -482,12 +483,14 @@ export function App() {
             </button>
           </div>
 
-          <QuizCard
-            question={currentQ}
-            questionNumber={room.currentQuestionIndex + 1}
-            totalQuestions={room.quiz.questions.length}
-            onAnswerSubmit={() => {}}
-          />
+          {currentQ && (
+            <QuizCard
+              question={currentQ}
+              questionNumber={room.currentQuestionIndex + 1}
+              totalQuestions={room.quiz.questions.length}
+              onAnswerSubmit={() => {}}
+            />
+          )}
         </div>
       );
     }
