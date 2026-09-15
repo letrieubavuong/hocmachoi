@@ -152,9 +152,11 @@ export function App() {
         const syncedPlayer = updatedRoom.players[player.id];
         setPlayer(syncedPlayer);
 
-        // Auto trigger power-up card modal if unlocked
+        // Auto trigger power-up card modal ONLY if THIS player unlocked a power-up
         if (syncedPlayer.unlockedPowerUp && updatedRoom.phase === 'QUESTION') {
           setShowPowerUpModal(true);
+        } else if (!syncedPlayer.unlockedPowerUp) {
+          setShowPowerUpModal(false);
         }
       }
     });
@@ -578,7 +580,7 @@ export function App() {
           <BattleActionModal
             attacker={player}
             opponents={opponents}
-            isOpen={showPowerUpModal}
+            isOpen={showPowerUpModal && !!player?.unlockedPowerUp}
             powerUpType={player.unlockedPowerUp}
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => setShowPowerUpModal(false)}
