@@ -22,7 +22,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   onAnswerSubmit,
   onAutoNext,
 }) => {
-  const [timeLeft, setTimeLeft] = useState(question.timeLimit || 20);
+  const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
 
   // 1. Multiple Choice state
@@ -45,7 +45,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const qType = question.type || 'MULTIPLE_CHOICE';
 
   useEffect(() => {
-    setTimeLeft(question.timeLimit || 20);
+    setTimeSpent(0);
     setSelectedOption(null);
     setTfUserSelections({});
     setShortInput('');
@@ -55,27 +55,13 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
   useEffect(() => {
     if (isAnswered) return;
-    if (timeLeft <= 0) {
-      handleTimeout();
-      return;
-    }
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
+      setTimeSpent((prev) => prev + 1);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft, isAnswered]);
-
-  const handleTimeout = () => {
-    if (isAnswered) return;
-    setIsAnswered(true);
-    soundManager.playWrong();
-    onAnswerSubmit(-1, false, question.timeLimit || 20);
-
-    // Auto-advance after 1.5 seconds on timeout
-    triggerAutoNext();
-  };
+  }, [isAnswered]);
 
   const triggerAutoNext = () => {
     if (onAutoNext) {
@@ -134,8 +120,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   };
 
   const evaluateAndSubmit = (isCorrect: boolean, selectedIdx: number) => {
-    const timeSpent = (question.timeLimit || 20) - timeLeft;
-
     let speedBonus = 0;
     let speedRating = 'Thường';
     if (timeSpent <= 3) {
@@ -169,6 +153,12 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     onAnswerSubmit(selectedIdx, isCorrect, timeSpent);
   };
 
+  const formatTimeSpent = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
   const optionColors = [
     'from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 border-red-400',
     'from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 border-blue-400',
@@ -178,7 +168,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
   const optionLabels = ['A', 'B', 'C', 'D'];
   const stmtLabels = ['a)', 'b)', 'c)', 'd)'];
-  const timerPercent = (timeLeft / (question.timeLimit || 20)) * 100;
   const currentRank = player ? getRankTier(player.score) : null;
 
   return (
@@ -215,22 +204,20 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           )}
         </div>
 
-        {/* Speed Timer */}
-        <div className="flex items-center gap-2">
-          <Clock className={`w-5 h-5 ${timeLeft <= 5 ? 'text-red-400 animate-ping' : 'text-slate-400'}`} />
-          <span className={`font-black text-2xl font-mono ${timeLeft <= 5 ? 'text-red-400' : 'text-white'}`}>
-            {timeLeft}s
+        {/* Elapsed Stopwatch Timer */}
+        <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+          <Clock className="w-4 h-4 text-purple-400" />
+          <span className="font-extrabold text-sm text-slate-200 font-mono">
+            Thời gian: <span className="text-yellow-400">{formatTimeSpent(timeSpent)}</span>
           </span>
         </div>
       </div>
 
-      {/* Countdown Progress Bar */}
-      <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+      {/* Quiz Overall Progress Bar */}
+      <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80">
         <div 
-          className={`h-full transition-all duration-1000 ease-linear ${
-            timeLeft <= 5 ? 'bg-red-500' : 'bg-gradient-to-r from-yellow-400 via-amber-500 to-pink-500'
-          }`}
-          style={{ width: `${timerPercent}%` }}
+          className="h-full bg-gradient-to-r from-purple-500 via-indigo-500 to-cyan-400 transition-all duration-500"
+          style={{ width: `${(questionNumber / totalQuestions) * 100}%` }}
         />
       </div>
 

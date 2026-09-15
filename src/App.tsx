@@ -166,7 +166,11 @@ export function App() {
     const currentQ = room.quiz.questions[room.currentQuestionIndex];
     let scoreToAdd = 0;
     if (isCorrect && currentQ) {
-      const speedBonus = Math.max(10, Math.round((currentQ.timeLimit - timeSpentSec) * 5));
+      let speedBonus = 0;
+      if (timeSpentSec <= 3) speedBonus = 150;
+      else if (timeSpentSec <= 6) speedBonus = 100;
+      else if (timeSpentSec <= 10) speedBonus = 50;
+
       const streakMultiplier = player.streak >= 2 ? 1.5 : 1;
       scoreToAdd = Math.round(((currentQ.points || 100) + speedBonus) * streakMultiplier);
     }
