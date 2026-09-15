@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Player, AttackEvent } from '../types';
 import { ChibiAvatar } from './ChibiAvatar';
 import { getRankTier, LIEN_QUAN_RANKS } from '../data/rankAssets';
-import { Trophy, Shield, Flame, Swords, Medal, Zap, Sparkles } from 'lucide-react';
+import { Trophy, Shield, Flame, Swords, Medal, Zap, Sparkles, AlertTriangle, Eye, CheckCircle2, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { soundManager } from '../services/audio';
 
@@ -23,6 +23,11 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
 }) => {
   const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
   const totalQuestions = 5; // Default reference questions count for rank threshold calculation
+
+  const totalStudents = sortedPlayers.length;
+  const awayStudents = sortedPlayers.filter((p) => p.isTabActive === false).length;
+  const focusedStudents = totalStudents - awayStudents;
+  const warnedStudents = sortedPlayers.filter((p) => (p.tabSwitchCount || 0) > 0).length;
 
   useEffect(() => {
     if (isFinal) {
@@ -55,6 +60,33 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
         <p className="text-xs md:text-sm text-slate-300">
           {isFinal ? 'Chúc mừng các Cao Thủ xuất sắc nhất mùa giải!' : 'Đua tốc độ làm bài & Tích điểm thăng hạng Lien Quan!'}
         </p>
+      </div>
+
+      {/* Teacher Anti-Cheat Monitoring Bar (Real-time Tab Tracker) */}
+      <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl shadow-lg flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Eye className="w-5 h-5 text-cyan-400" />
+          <span className="text-xs font-black text-white uppercase tracking-wider">Giám Sát Trực Tuyến & Chống Gian Lận</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-xs font-bold">
+          <span className="px-3 py-1 bg-slate-800 rounded-xl text-slate-300 border border-slate-700 flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5 text-purple-400" /> Sĩ Số: <strong className="text-white font-extrabold">{totalStudents}</strong>
+          </span>
+          <span className="px-3 py-1 bg-emerald-600/20 rounded-xl text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Đang Tập Trung: <strong className="text-white font-extrabold">{focusedStudents}</strong>
+          </span>
+          {awayStudents > 0 && (
+            <span className="px-3 py-1 bg-rose-600/30 rounded-xl text-rose-300 border border-rose-500/50 flex items-center gap-1.5 animate-pulse">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> 🔴 Rời Tab: <strong className="text-white font-extrabold">{awayStudents}</strong>
+            </span>
+          )}
+          {warnedStudents > 0 && (
+            <span className="px-3 py-1 bg-amber-500/20 rounded-xl text-amber-300 border border-amber-500/40 flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5 text-amber-400" /> ⚠️ Cảnh Báo Chuyển Tab: <strong className="text-white font-extrabold">{warnedStudents} HS</strong>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Top 3 Podium View with Lien Quan Rank Frames */}
@@ -164,7 +196,24 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between sm:justify-end gap-3">
+                <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
+                  {/* Tab Status Monitoring Badges */}
+                  {player.isTabActive === false ? (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-rose-600/30 text-rose-300 border border-rose-500/50 flex items-center gap-1 animate-pulse">
+                      <AlertTriangle className="w-3 h-3 text-rose-400" /> 🔴 Rời Màn Hình
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" /> 🟢 Tập Trung
+                    </span>
+                  )}
+
+                  {(player.tabSwitchCount || 0) > 0 && (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1" title="Số lần chuyển tab / rời màn hình">
+                      <Eye className="w-3 h-3 text-amber-400" /> ⚠️ Rời tab: {player.tabSwitchCount} lần
+                    </span>
+                  )}
+
                   {/* Lien Quan Rank Badge */}
                   <span className={`px-2.5 py-1 rounded-xl text-xs font-black bg-gradient-to-r ${rank.bgGradient} text-white shadow-md flex items-center gap-1 border border-white/20`}>
                     <span>{rank.icon}</span>

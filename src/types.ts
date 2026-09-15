@@ -69,6 +69,9 @@ export interface Player {
   };
   isReady: boolean;
   joinedAt: number;
+  tabSwitchCount?: number;
+  isTabActive?: boolean;
+  lastTabSwitchTime?: number;
 }
 
 export interface GameRoom {

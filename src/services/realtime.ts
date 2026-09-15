@@ -88,6 +88,8 @@ export class RealtimeService {
             this.updatePlayerStats(roomCode, data.playerId, data.scoreToAdd, data.isCorrect);
           } else if (data?.type === 'EXECUTE_ATTACK') {
             this.executePowerUp(roomCode, data.attackerId, data.targetId, data.powerUpType);
+          } else if (data?.type === 'TAB_STATUS_UPDATE') {
+            this.updatePlayerTabStatus(roomCode, data.playerId, data.isTabActive, data.tabSwitchCount);
           }
         });
 
@@ -256,6 +258,48 @@ export class RealtimeService {
         playerId,
         scoreToAdd: deltaScore,
         isCorrect,
+      });
+    }
+
+    return updatedRoom;
+  }
+
+  // Update Player Tab / Window Visibility Status (Anti-Cheat Monitoring)
+  public updatePlayerTabStatus(
+    roomCode: string,
+    playerId: string,
+    isTabActive: boolean,
+    tabSwitchCount: number
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    const updatedPlayer: Player = {
+      ...player,
+      isTabActive,
+      tabSwitchCount,
+      lastTabSwitchTime: !isTabActive ? Date.now() : player.lastTabSwitchTime,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'TAB_STATUS_UPDATE',
+        playerId,
+        isTabActive,
+        tabSwitchCount,
       });
     }
 

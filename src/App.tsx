@@ -70,6 +70,58 @@ export function App() {
   const [showQuizCreator, setShowQuizCreator] = useState(false);
   const [showDeployGuide, setShowDeployGuide] = useState(false);
 
+  // Student: Anti-Cheat Tab Switch & Window Focus Monitor
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [showTabWarningToast, setShowTabWarningToast] = useState(false);
+
+  useEffect(() => {
+    if (role !== 'PLAYER' || !room?.roomCode || !player?.id) return;
+
+    let isHiddenState = false;
+
+    const handleTabLeave = () => {
+      if (isHiddenState) return;
+      isHiddenState = true;
+
+      setTabSwitchCount((prev) => {
+        const nextCount = prev + 1;
+        realtime.updatePlayerTabStatus(room.roomCode, player.id, false, nextCount);
+        return nextCount;
+      });
+
+      setShowTabWarningToast(true);
+      setTimeout(() => setShowTabWarningToast(false), 4500);
+    };
+
+    const handleTabReturn = () => {
+      if (!isHiddenState) return;
+      isHiddenState = false;
+
+      setTabSwitchCount((currentCount) => {
+        realtime.updatePlayerTabStatus(room.roomCode, player.id, true, currentCount);
+        return currentCount;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleTabLeave();
+      } else {
+        handleTabReturn();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleTabLeave);
+    window.addEventListener('focus', handleTabReturn);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleTabLeave);
+      window.removeEventListener('focus', handleTabReturn);
+    };
+  }, [role, room?.roomCode, player?.id]);
+
   // Read URL query parameter for QR Code quick join (e.g. ?pin=839204)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -432,6 +484,18 @@ export function App() {
 
       return (
         <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
+          {showTabWarningToast && (
+            <div className="fixed top-6 right-6 z-50 bg-rose-950/95 border-2 border-rose-500 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce max-w-md">
+              <span className="text-3xl">⚠️</span>
+              <div>
+                <h4 className="font-black text-sm text-yellow-300">CẢNH BÁO RỜI MÀN HÌNH!</h4>
+                <p className="text-xs text-rose-200 mt-0.5">
+                  Bạn vừa rời tab / mở ứng dụng khác (Lần thứ {tabSwitchCount}). Đã ghi nhận báo cáo đến màn hình Giáo viên!
+                </p>
+              </div>
+            </div>
+          )}
+
           <QuizCard
             question={currentQ}
             questionNumber={room.currentQuestionIndex + 1}
@@ -494,12 +558,33 @@ export function App() {
 
     if (room.phase === 'QUESTION') {
       const currentQ = room.quiz.questions[room.currentQuestionIndex];
+      const allPlayers = Object.values(room.players);
+      const awayCount = allPlayers.filter((p) => p.isTabActive === false).length;
+      const warnedCount = allPlayers.filter((p) => (p.tabSwitchCount || 0) > 0).length;
+
       return (
         <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-between space-y-6">
-          <div className="w-full max-w-4xl flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
-            <span className="text-yellow-400 font-extrabold text-sm">
-              MÃ PHÒNG (PIN): {room.roomCode}
-            </span>
+          <div className="w-full max-w-4xl flex flex-wrap items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800 gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-yellow-400 font-extrabold text-sm">
+                MÃ PHÒNG (PIN): {room.roomCode}
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
+                👥 {allPlayers.length} HS
+              </span>
+              {awayCount > 0 && (
+                <span className="px-2.5 py-1 bg-rose-600/30 text-rose-300 border border-rose-500/50 rounded-xl text-xs font-black animate-pulse">
+                  🔴 {awayCount} HS rời tab
+                </span>
+              )}
+              {warnedCount > 0 && (
+                <span className="px-2.5 py-1 bg-amber-500/20 text-yellow-300 border border-amber-500/40 rounded-xl text-xs font-bold">
+                  ⚠️ {warnedCount} HS có vi phạm
+                </span>
+              )}
+            </div>
+
             <button
               onClick={handleNextQuestion}
               className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-xl text-sm shadow-md"
