@@ -204,7 +204,7 @@ export function App() {
     if (updated) setRoom(updated);
   };
 
-  // Host or Player Auto-Next Question Progression
+  // Host: Overall Game Phase Progression
   const handleNextQuestion = () => {
     if (!room) return;
     const nextIdx = room.currentQuestionIndex + 1;
@@ -215,6 +215,13 @@ export function App() {
       const updated = realtime.updatePhase(room.roomCode, 'FINISHED');
       if (updated) setRoom(updated);
     }
+  };
+
+  // Student: Per-student independent question advancement
+  const handleStudentNextQuestion = () => {
+    if (!room || !player) return;
+    const updatedRoom = realtime.advancePlayerQuestion(room.roomCode, player.id);
+    if (updatedRoom) setRoom(updatedRoom);
   };
 
   // Student: Submit Answer
@@ -563,7 +570,7 @@ export function App() {
             totalQuestions={questionsList.length || 1}
             player={player}
             onAnswerSubmit={handleAnswerSubmit}
-            onAutoNext={() => {}}
+            onAutoNext={handleStudentNextQuestion}
           />
 
           <BattleActionModal
@@ -573,7 +580,7 @@ export function App() {
             powerUpType={player.unlockedPowerUp}
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => setShowPowerUpModal(false)}
-            onNextQuestion={() => {}}
+            onNextQuestion={handleStudentNextQuestion}
           />
 
           <StudentAlertModal alertEvent={room.latestTeacherAlert} currentPlayerId={player.id} />

@@ -88,6 +88,8 @@ export class RealtimeService {
             this.updatePlayerStats(roomCode, data.playerId, data.scoreToAdd, data.isCorrect);
           } else if (data?.type === 'INIT_QUESTIONS') {
             this.initializePlayerQuestions(roomCode, data.playerId, data.shuffledQuestions);
+          } else if (data?.type === 'ADVANCE_QUESTION') {
+            this.advancePlayerQuestion(roomCode, data.playerId);
           } else if (data?.type === 'EXECUTE_ATTACK') {
             this.executePowerUp(roomCode, data.attackerId, data.targetId, data.powerUpType);
           } else if (data?.type === 'TAB_STATUS_UPDATE') {
@@ -283,11 +285,6 @@ export class RealtimeService {
     let isFrozen = false;
     let isBombed = false;
 
-    const totalQ = player.shuffledQuestions?.length || room.quiz.questions.length;
-    const currentQIdx = player.currentQuestionIndex || 0;
-    const nextQIdx = currentQIdx + 1;
-    const isFinished = nextQIdx >= totalQ;
-
     const updatedPlayer: Player = {
       ...player,
       score: Math.max(0, player.score + finalDeltaScore),
@@ -299,10 +296,8 @@ export class RealtimeService {
       isFrozen,
       isBombed,
       unlockedPowerUp,
-      currentQuestionIndex: nextQIdx,
       totalAnswered: (player.totalAnswered || 0) + 1,
       correctCount: (player.correctCount || 0) + (isCorrect ? 1 : 0),
-      isFinished,
     };
 
     const updatedRoom: GameRoom = {
@@ -323,6 +318,45 @@ export class RealtimeService {
         playerId,
         scoreToAdd: deltaScore,
         isCorrect,
+      });
+    }
+
+    return updatedRoom;
+  }
+
+  // Advance per-student question index independently
+  public advancePlayerQuestion(roomCode: string, playerId: string): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    const totalQ = player.shuffledQuestions?.length || room.quiz.questions.length;
+    const currentQIdx = player.currentQuestionIndex || 0;
+    const nextQIdx = currentQIdx + 1;
+    const isFinished = nextQIdx >= totalQ;
+
+    const updatedPlayer: Player = {
+      ...player,
+      currentQuestionIndex: nextQIdx,
+      isFinished,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'ADVANCE_QUESTION',
+        playerId,
       });
     }
 
