@@ -53,6 +53,9 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return wrong.slice(0, 2);
   }, [player?.oracle5050Active, question.id, question.correctIndex, qType]);
 
+  const autoNextFiredRef = React.useRef(false);
+  const autoNextTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     setTimeSpent(0);
     setSelectedOption(null);
@@ -60,6 +63,11 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setShortInput('');
     setIsAnswered(false);
     setLastEarnedScore(null);
+    autoNextFiredRef.current = false;
+    if (autoNextTimerRef.current) {
+      clearTimeout(autoNextTimerRef.current);
+      autoNextTimerRef.current = null;
+    }
   }, [question]);
 
   useEffect(() => {
@@ -74,9 +82,24 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
   const triggerAutoNext = () => {
     if (onAutoNext) {
-      setTimeout(() => {
-        onAutoNext();
+      if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current);
+      autoNextTimerRef.current = setTimeout(() => {
+        if (!autoNextFiredRef.current) {
+          autoNextFiredRef.current = true;
+          onAutoNext();
+        }
       }, 1500);
+    }
+  };
+
+  const handleManualNext = () => {
+    if (autoNextTimerRef.current) {
+      clearTimeout(autoNextTimerRef.current);
+      autoNextTimerRef.current = null;
+    }
+    if (!autoNextFiredRef.current && onAutoNext) {
+      autoNextFiredRef.current = true;
+      onAutoNext();
     }
   };
 
@@ -473,7 +496,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           {onAutoNext && (
             <div className="pt-2">
               <button
-                onClick={() => onAutoNext()}
+                onClick={handleManualNext}
                 className="px-6 py-2.5 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-sm rounded-xl shadow-lg transition-transform active:scale-95 cursor-pointer"
               >
                 CÂU TIẾP THEO ➔

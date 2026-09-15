@@ -223,7 +223,6 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
             <button
               onClick={() => {
                 onClose();
-                if (onNextQuestion) onNextQuestion();
               }}
               className="w-full py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-black text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
             >
