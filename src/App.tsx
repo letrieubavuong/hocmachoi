@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
