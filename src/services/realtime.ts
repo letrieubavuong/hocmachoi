@@ -613,6 +613,48 @@ export class RealtimeService {
     return { success: true, blocked, stolenPoints, mysteryBonus };
   }
 
+  // Freeze player (e.g. for rapid guessing / anti-spam violation or freeze power-up)
+  public freezePlayer(
+    roomCode: string,
+    playerId: string,
+    durationSec: number = 10,
+    reason?: string
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    const updatedPlayer: Player = {
+      ...player,
+      isFrozen: true,
+      freezeReason: reason || '⚠️ CẢNH BÁO LÔ TÔ ĐÁP ÁN: Bạn chọn quá nhanh (dưới 2s)! Đóng băng 10s.',
+      rapidGuessCount: (player.rapidGuessCount || 0) + 1,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'FREEZE_PLAYER',
+        playerId,
+        durationSec,
+        reason,
+      });
+    }
+
+    return updatedRoom;
+  }
+
   // Unfreeze player after freeze duration expires
   public unfreezePlayer(roomCode: string, playerId: string): GameRoom | null {
     const room = this.getRoom(roomCode);

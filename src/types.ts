@@ -60,6 +60,8 @@ export interface Player {
   doublePointsActive?: boolean;
   oracle5050Active?: boolean;
   isFrozen?: boolean;
+  freezeReason?: string;
+  rapidGuessCount?: number;
   isBombed?: boolean;
   unlockedPowerUp?: PowerUpType | null;
   lastAttackNotice?: {

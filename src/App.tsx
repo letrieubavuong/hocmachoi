@@ -245,6 +245,13 @@ export function App() {
   const handleAnswerSubmit = (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => {
     if (!room || !player) return;
 
+    // Anti-Guessing ("Lô tô đáp án") Check: If student answers under 2 seconds, trigger 10s freeze!
+    if (timeSpentSec < 2) {
+      const reason = '⚠️ CẢNH BÁO LÔ TÔ ĐÁP ÁN: Bạn chọn quá nhanh (dưới 2s)! Hệ thống tự động đóng băng 10 giây để bạn đọc kỹ câu hỏi.';
+      const frozenRoom = realtime.freezePlayer(room.roomCode, player.id, 10, reason);
+      if (frozenRoom) setRoom(frozenRoom);
+    }
+
     const questionsList = player.shuffledQuestions || room.quiz.questions;
     const currentQ = questionsList[player.currentQuestionIndex || 0];
     let scoreToAdd = 0;
@@ -840,16 +847,26 @@ export function App() {
                         <div className="flex items-center gap-3">
                           <ChibiAvatar customization={p.chibi} size="sm" isBouncing={false} />
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="font-black text-base text-white">{p.name}</h4>
+                              {p.studentCode && (
+                                <span className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 text-purple-300 rounded text-[10px] font-mono font-bold">
+                                  🆔 {p.studentCode}
+                                </span>
+                              )}
                               <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-gradient-to-r ${tier.bgGradient} text-white shadow-sm flex items-center gap-1`}>
                                 <span>{tier.icon}</span>
                                 <span>{tier.name}</span>
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium mt-0.5">
+                            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium mt-0.5 flex-wrap">
                               <span>🎯 Đúng {p.correctCount || 0}/{totalQuestions} câu ({accuracyPct}%)</span>
+                              {(p.rapidGuessCount || 0) > 0 && (
+                                <span className="px-1.5 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1">
+                                  🎲 Lô tô ({p.rapidGuessCount} lần)
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>

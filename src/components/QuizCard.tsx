@@ -26,7 +26,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 }) => {
   const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
-  const [freezeSeconds, setFreezeSeconds] = useState(6);
+  const [freezeSeconds, setFreezeSeconds] = useState(10);
 
   // 1. Multiple Choice state
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
@@ -74,14 +74,14 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     }
   }, [question.id, questionNumber]);
 
-  // Auto-unfreeze timer: countdown 6s and call onUnfreeze
+  // Auto-unfreeze timer: countdown 10s and call onUnfreeze
   useEffect(() => {
     if (!player?.isFrozen) {
-      setFreezeSeconds(6);
+      setFreezeSeconds(10);
       return;
     }
 
-    setFreezeSeconds(6);
+    setFreezeSeconds(10);
     const interval = setInterval(() => {
       setFreezeSeconds((prev) => {
         if (prev <= 1) {
@@ -327,8 +327,8 @@ export const QuizCard: React.FC<QuizCardProps> = ({
             <div className="text-3xl font-black text-cyan-300 bg-cyan-900/60 px-6 py-2 rounded-2xl border border-cyan-400/50 my-2 shadow-lg">
               Tự động tan băng sau: <span className="text-yellow-300 font-mono">{freezeSeconds}s</span>
             </div>
-            <p className="text-xs text-cyan-200 max-w-md font-semibold">
-              Bạn vừa bị đối thủ sử dụng Thẻ Đóng Băng. Hãy kiên nhẫn đợi tan băng để tiếp tục chọn đáp án!
+            <p className="text-xs text-cyan-200 max-w-md font-semibold bg-cyan-950/70 p-3 rounded-xl border border-cyan-500/30 shadow">
+              {player?.freezeReason || 'Bạn bị đóng băng. Hãy kiên nhẫn đợi tan băng để tiếp tục chọn đáp án!'}
             </p>
           </div>
         )}

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Player, AttackEvent } from '../types';
 import { ChibiAvatar } from './ChibiAvatar';
 import { getRankTier, LIEN_QUAN_RANKS } from '../data/rankAssets';
-import { Trophy, Shield, Flame, Swords, Medal, Zap, Sparkles, AlertTriangle, Eye, CheckCircle2, Users, Megaphone } from 'lucide-react';
+import { Trophy, Shield, Flame, Swords, Medal, Zap, Sparkles, AlertTriangle, Eye, CheckCircle2, Users, Megaphone, Snowflake } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { soundManager } from '../services/audio';
 
@@ -229,6 +229,12 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
                   {(player.tabSwitchCount || 0) > 0 && (
                     <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1" title="Số lần chuyển tab / rời màn hình">
                       <Eye className="w-3 h-3 text-amber-400" /> ⚠️ Rời tab: {player.tabSwitchCount} lần
+                    </span>
+                  )}
+
+                  {(player.rapidGuessCount || 0) > 0 && (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1" title="Số lần chọn lụi / lô tô đáp án quá nhanh (dưới 2s)">
+                      <Snowflake className="w-3 h-3 text-cyan-300" /> 🎲 Lô tô: {player.rapidGuessCount} lần (Đóng băng 10s)
                     </span>
                   )}
 
