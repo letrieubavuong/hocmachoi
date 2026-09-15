@@ -228,6 +228,13 @@ export function App() {
     if (updatedRoom) setRoom(updatedRoom);
   };
 
+  // Student: Unfreeze player when freeze timer expires
+  const handleUnfreezePlayer = () => {
+    if (!room || !player) return;
+    const updatedRoom = realtime.unfreezePlayer(room.roomCode, player.id);
+    if (updatedRoom) setRoom(updatedRoom);
+  };
+
   // Student: Submit Answer
   const handleAnswerSubmit = (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => {
     if (!room || !player) return;
@@ -575,6 +582,7 @@ export function App() {
             player={player}
             onAnswerSubmit={handleAnswerSubmit}
             onAutoNext={handleStudentNextQuestion}
+            onUnfreeze={handleUnfreezePlayer}
           />
 
           <BattleActionModal

@@ -12,6 +12,7 @@ interface QuizCardProps {
   player?: Player;
   onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => void;
   onAutoNext?: () => void;
+  onUnfreeze?: () => void;
 }
 
 export const QuizCard: React.FC<QuizCardProps> = ({
@@ -21,9 +22,11 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   player,
   onAnswerSubmit,
   onAutoNext,
+  onUnfreeze,
 }) => {
   const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
+  const [freezeSeconds, setFreezeSeconds] = useState(6);
 
   // 1. Multiple Choice state
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
@@ -56,6 +59,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const autoNextFiredRef = React.useRef(false);
   const autoNextTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // Reset answer states strictly when question ID or questionNumber changes (not on every real-time player broadcast)
   useEffect(() => {
     setTimeSpent(0);
     setSelectedOption(null);
@@ -68,7 +72,29 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       clearTimeout(autoNextTimerRef.current);
       autoNextTimerRef.current = null;
     }
-  }, [question]);
+  }, [question.id, questionNumber]);
+
+  // Auto-unfreeze timer: countdown 6s and call onUnfreeze
+  useEffect(() => {
+    if (!player?.isFrozen) {
+      setFreezeSeconds(6);
+      return;
+    }
+
+    setFreezeSeconds(6);
+    const interval = setInterval(() => {
+      setFreezeSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          if (onUnfreeze) onUnfreeze();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [player?.isFrozen, onUnfreeze]);
 
   useEffect(() => {
     if (isAnswered) return;
@@ -292,7 +318,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         {player?.isFrozen && (
           <div className="absolute inset-0 z-40 bg-cyan-950/95 backdrop-blur-md rounded-3xl border-4 border-cyan-400 flex flex-col items-center justify-center p-6 text-center space-y-3 animate-fade-in">
             <Snowflake className="w-16 h-16 text-cyan-300 animate-spin" />
-            <h3 className="text-2xl font-black text-white">❄️ MÀN HÌNH BỊ ĐÓNG BẰNG 6 GIÂY!</h3>
+            <h3 className="text-2xl font-black text-white">❄️ MÀN HÌNH BỊ ĐÓNG BẰNG!</h3>
+            <div className="text-3xl font-black text-cyan-300 bg-cyan-900/60 px-6 py-2 rounded-2xl border border-cyan-400/50 my-2 shadow-lg">
+              Tự động tan băng sau: <span className="text-yellow-300 font-mono">{freezeSeconds}s</span>
+            </div>
             <p className="text-xs text-cyan-200 max-w-md font-semibold">
               Bạn vừa bị đối thủ sử dụng Thẻ Đóng Băng. Hãy kiên nhẫn đợi tan băng để tiếp tục chọn đáp án!
             </p>

@@ -543,6 +543,33 @@ export class RealtimeService {
     return { success: true, blocked, stolenPoints, mysteryBonus };
   }
 
+  // Unfreeze player after freeze duration expires
+  public unfreezePlayer(roomCode: string, playerId: string): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    if (!player.isFrozen) return room;
+
+    const updatedPlayer: Player = {
+      ...player,
+      isFrozen: false,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
+  }
+
   private broadcastToPeerClients(room: GameRoom) {
     this.connections.forEach((conn) => {
       if (conn.open) {
