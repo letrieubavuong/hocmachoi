@@ -44,6 +44,8 @@ import {
 } from 'lucide-react';
 
 const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
+const STORAGE_ACTIVE_HOST_ROOM = 'chibi_quiz_active_host_room_code';
+const STORAGE_ACTIVE_PLAYER_SESSION = 'chibi_quiz_active_player_session';
 
 export function App() {
   const [role, setRole] = useState<'HOME' | 'HOST' | 'PLAYER'>('HOME');
@@ -142,10 +144,47 @@ export function App() {
     };
   }, [role, room?.roomCode, player?.id]);
 
-  // Read URL query parameter for QR Code quick join (e.g. ?pin=839204)
+  // Restore active Teacher Host or Student session after F5 page refresh
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     const params = new URLSearchParams(window.location.search);
+    const hostParam = params.get('host');
     const pinParam = params.get('pin');
+
+    // Priority 1: Restore Teacher Host room on F5
+    const savedHostCode = hostParam || localStorage.getItem(STORAGE_ACTIVE_HOST_ROOM);
+    if (savedHostCode) {
+      const existingRoom = realtime.reconnectHost(savedHostCode);
+      if (existingRoom) {
+        setRoom(existingRoom);
+        setRole('HOST');
+        soundManager.playBGM();
+        return;
+      }
+    }
+
+    // Priority 2: Restore Student Player session on F5
+    const savedPlayerSession = localStorage.getItem(STORAGE_ACTIVE_PLAYER_SESSION);
+    if (savedPlayerSession) {
+      try {
+        const { roomCode: savedCode, player: savedPlayer } = JSON.parse(savedPlayerSession);
+        const existingRoom = realtime.reconnectStudent(savedCode, savedPlayer);
+        if (existingRoom) {
+          const latestPlayer = existingRoom.players[savedPlayer.id] || savedPlayer;
+          setPlayer(latestPlayer);
+          setRoom(existingRoom);
+          setRole('PLAYER');
+          setShowCustomizer(false);
+          soundManager.playBGM();
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to restore player session on refresh', e);
+      }
+    }
+
+    // Priority 3: QR Code Quick Join Param
     if (pinParam) {
       setRoomCodeInput(pinParam);
       setRole('PLAYER');
@@ -182,6 +221,7 @@ export function App() {
     const newRoom = realtime.createRoom(quizToUse, hostId);
     setRoom(newRoom);
     setRole('HOST');
+    localStorage.setItem(STORAGE_ACTIVE_HOST_ROOM, newRoom.roomCode);
     soundManager.playBGM();
   };
 
@@ -212,6 +252,7 @@ export function App() {
     if (updatedRoom) {
       setRoom(updatedRoom);
     }
+    localStorage.setItem(STORAGE_ACTIVE_PLAYER_SESSION, JSON.stringify({ roomCode: code, player: newPlayer }));
     soundManager.playBGM();
   };
 
@@ -318,6 +359,13 @@ export function App() {
 
   const handleResetHome = () => {
     soundManager.stopBGM();
+    localStorage.removeItem(STORAGE_ACTIVE_HOST_ROOM);
+    localStorage.removeItem(STORAGE_ACTIVE_PLAYER_SESSION);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.search = '';
+      window.history.replaceState({}, '', url.toString());
+    }
     setRole('HOME');
     setRoom(null);
     setPlayer(null);

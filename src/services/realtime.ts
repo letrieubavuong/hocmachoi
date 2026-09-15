@@ -655,6 +655,43 @@ export class RealtimeService {
     return updatedRoom;
   }
 
+  // Host: Reconnect Host Peer after F5 page refresh
+  public reconnectHost(roomCode: string): GameRoom | null {
+    this.currentRoomCode = roomCode;
+    this.initHostPeer(roomCode);
+    return this.getRoom(roomCode);
+  }
+
+  // Student: Reconnect Student Peer after F5 page refresh
+  public reconnectStudent(roomCode: string, player: Player): GameRoom | null {
+    this.currentRoomCode = roomCode;
+    let room = this.getRoom(roomCode);
+    try {
+      if (this.peer) this.peer.destroy();
+      this.peer = new Peer();
+
+      this.peer.on('open', () => {
+        const hostPeerId = `${PEER_PREFIX}${roomCode}`;
+        const conn = this.peer!.connect(hostPeerId, { reliable: true });
+        this.hostConnection = conn;
+
+        conn.on('open', () => {
+          conn.send({ type: 'JOIN_PLAYER', player });
+        });
+
+        conn.on('data', (data: any) => {
+          if (data?.type === 'ROOM_UPDATE' && data.room) {
+            this.saveLocalOnly(data.room);
+            this.notifyListeners(data.room);
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Student reconnect PeerJS error:', e);
+    }
+    return room;
+  }
+
   // Unfreeze player after freeze duration expires
   public unfreezePlayer(roomCode: string, playerId: string): GameRoom | null {
     const room = this.getRoom(roomCode);
