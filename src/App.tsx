@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GameRoom, Player, Quiz, ChibiCustomization, PowerUpType } from './types';
+import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
 import { realtime } from './services/realtime';
