@@ -11,7 +11,6 @@ interface QuizCardProps {
   totalQuestions: number;
   player?: Player;
   onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => void;
-  onAutoNext?: () => void;
 }
 
 export const QuizCard: React.FC<QuizCardProps> = ({
@@ -20,7 +19,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   totalQuestions,
   player,
   onAnswerSubmit,
-  onAutoNext,
 }) => {
   const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -63,15 +61,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return () => clearInterval(timer);
   }, [isAnswered]);
 
-  const triggerAutoNext = () => {
-    if (onAutoNext) {
-      setTimeout(() => {
-        onAutoNext();
-      }, 1400);
-    }
-  };
-
-  // Submit Multiple Choice Answer -> Auto-advance after 1.4s!
+  // Submit Multiple Choice Answer
   const handleSelectMC = (index: number) => {
     if (isAnswered) return;
     setIsAnswered(true);
@@ -79,10 +69,9 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
     const isCorrect = index === question.correctIndex;
     evaluateAndSubmit(isCorrect, index);
-    triggerAutoNext();
   };
 
-  // Submit True / False (ChoiceTF) Answer -> Auto-advance after 1.4s!
+  // Submit True / False (ChoiceTF) Answer
   const handleToggleTF = (stmtIdx: number, val: boolean) => {
     if (isAnswered) return;
     setTfUserSelections((prev) => ({ ...prev, [stmtIdx]: val }));
@@ -102,10 +91,9 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
     const isCorrect = correctCount === question.options.length;
     evaluateAndSubmit(isCorrect, 0);
-    triggerAutoNext();
   };
 
-  // Submit Short Answer (\shortans) -> Auto-advance after 1.4s!
+  // Submit Short Answer (\shortans)
   const handleSubmitShort = (e: React.FormEvent) => {
     e.preventDefault();
     if (isAnswered || !shortInput.trim()) return;
@@ -116,7 +104,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     const isCorrect = userClean === targetClean || (parseFloat(userClean) === parseFloat(targetClean));
 
     evaluateAndSubmit(isCorrect, 0);
-    triggerAutoNext();
   };
 
   const evaluateAndSubmit = (isCorrect: boolean, selectedIdx: number) => {
@@ -406,12 +393,12 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                   +{lastEarnedScore.total} Điểm!
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 block pt-1">⚡ Đang tự động chuyển sang câu tiếp theo...</span>
+              <span className="text-[11px] text-slate-400 block pt-1">🟢 Đã ghi nhận đáp án! Đang chờ Giáo viên duyệt / chuyển câu tiếp theo...</span>
             </div>
           ) : (
             <div className="space-y-1">
               <span className="text-lg block">❌ CHƯA CHÍNH XÁC!</span>
-              <span className="text-[11px] text-slate-400 block">⚡ Đang tự động chuyển sang câu tiếp theo...</span>
+              <span className="text-[11px] text-slate-400 block">🟢 Đã ghi nhận đáp án! Đang chờ Giáo viên duyệt / chuyển câu tiếp theo...</span>
             </div>
           )}
 
