@@ -563,7 +563,7 @@ export class RealtimeService {
       } else if (powerUpType === 'DOUBLE_POINTS') {
         updatedAttacker.doublePointsActive = true;
       } else if (powerUpType === 'MYSTERY_BOX') {
-        mysteryBonus = Math.floor(200 + Math.random() * 350); // +200 to +550
+        mysteryBonus = Math.floor(10 + Math.random() * 41) * 10; // +100 to +500 random points
         updatedAttacker.score += mysteryBonus;
       } else if (powerUpType === 'ROCKET_BOOST') {
         mysteryBonus = 300;
