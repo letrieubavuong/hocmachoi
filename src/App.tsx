@@ -16,6 +16,7 @@ import { VercelDeployGuide } from './components/VercelDeployGuide';
 import { TeacherAlertModal } from './components/TeacherAlertModal';
 import { StudentAlertModal } from './components/StudentAlertModal';
 
+import { getRankTier } from './data/rankAssets';
 import { shuffleStudentQuestions } from './utils/shuffle';
 
 import {
@@ -33,6 +34,7 @@ import {
   Gift,
   Zap,
   Megaphone,
+  Trophy,
 } from 'lucide-react';
 
 const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
@@ -646,6 +648,9 @@ export function App() {
     if (room.phase === 'QUESTION') {
       const allPlayers = Object.values(room.players);
       const totalCount = allPlayers.length;
+      // Real-time sorting by highest score first!
+      const sortedPlayers = [...allPlayers].sort((a, b) => b.score - a.score);
+
       const finishedCount = allPlayers.filter((p) => p.isFinished).length;
       const awayCount = allPlayers.filter((p) => p.isTabActive === false).length;
       const warnedCount = allPlayers.filter((p) => (p.tabSwitchCount || 0) > 0).length;
@@ -663,12 +668,12 @@ export function App() {
 
               <div className="flex items-center gap-2 bg-slate-950 px-3.5 py-2 rounded-2xl border border-slate-800 text-xs font-bold text-slate-300">
                 <Users className="w-4 h-4 text-purple-400" />
-                <span>{totalCount} Học sinh đang làm</span>
+                <span>{totalCount} Học sinh</span>
               </div>
 
               {finishedCount > 0 && (
                 <div className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-500/40 px-3.5 py-2 rounded-2xl text-xs font-extrabold text-emerald-300">
-                  <span>✅ {finishedCount}/{totalCount} Đã hoàn thành</span>
+                  <span>✅ {finishedCount}/{totalCount} Hoàn thành</span>
                 </div>
               )}
 
@@ -680,7 +685,7 @@ export function App() {
 
               {warnedCount > 0 && (
                 <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-500/40 px-3.5 py-2 rounded-2xl text-xs font-bold text-yellow-300">
-                  <span>⚠️ {warnedCount} HS có vi phạm</span>
+                  <span>⚠️ {warnedCount} HS vi phạm</span>
                 </div>
               )}
             </div>
@@ -690,7 +695,7 @@ export function App() {
                 onClick={() => setShowTeacherAlertModal(true)}
                 className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
-                <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo
+                <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo Lớp
               </button>
               <button
                 onClick={() => {
@@ -706,130 +711,174 @@ export function App() {
             </div>
           </div>
 
-          {/* Main Dashboard Layout: 2 Columns */}
-          <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Column 1 & 2 (2 cols wide): Live Student Progress Matrix */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="bg-slate-900/90 backdrop-blur-xl p-6 rounded-3xl border-2 border-slate-800 shadow-2xl">
-                <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
-                  <h3 className="text-lg font-black text-white flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-yellow-400" />
-                    TIẾN ĐỘ BÀI THI CỦA HỌC SINH (REAL-TIME)
-                  </h3>
-                  <span className="text-xs text-slate-400 font-bold">
-                    Tự động xáo câu hỏi & đáp án per student
-                  </span>
-                </div>
+          {/* Full Width Master Live Student Ranking & Progress Table */}
+          <div className="w-full max-w-6xl bg-slate-900/90 backdrop-blur-xl p-6 rounded-3xl border-2 border-slate-800 shadow-2xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-4 gap-2">
+              <div>
+                <h3 className="text-xl font-black text-white flex items-center gap-2">
+                  <Trophy className="w-6 h-6 text-yellow-400 animate-bounce" />
+                  BẢNG GIÁM SÁT TIẾN ĐỘ & BẢNG XẾP HẠNG THỜI GIAN THỰC
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 font-medium">
+                  Tự động sắp xếp vị trí theo Điểm số & Thứ hạng (Real-time sorting) • Xáo câu hỏi per student
+                </p>
+              </div>
 
-                {allPlayers.length === 0 ? (
-                  <div className="text-center py-12 text-slate-500 font-medium">
-                    Chưa có học sinh nào trong phòng...
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1">
-                    {allPlayers.map((p) => {
-                      const currentIdx = p.currentQuestionIndex || 0;
-                      const progressPct = Math.min(100, Math.round((currentIdx / totalQuestions) * 100));
-                      const isAway = p.isTabActive === false;
-                      const hasSwitched = (p.tabSwitchCount || 0) > 0;
+              <span className="px-3 py-1 bg-purple-600/20 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-xl">
+                ⚡ Tự động cập nhật thứ hạng liên tục
+              </span>
+            </div>
 
-                      return (
-                        <div
-                          key={p.id}
-                          className={`p-4 rounded-2xl border-2 transition-all flex flex-col justify-between space-y-3 ${
-                            p.isFinished
-                              ? 'bg-emerald-950/30 border-emerald-500/50'
-                              : isAway
-                              ? 'bg-rose-950/40 border-rose-500 animate-pulse'
-                              : 'bg-slate-950 border-slate-800 hover:border-purple-500/50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <ChibiAvatar customization={p.chibi} size="sm" />
-                              <div>
-                                <h4 className="font-extrabold text-sm text-white">{p.name}</h4>
-                                <div className="text-[11px] text-slate-400 font-medium">
-                                  {p.score.toLocaleString()} điểm | 🔥 Streak {p.streak}
-                                </div>
-                              </div>
-                            </div>
+            {sortedPlayers.length === 0 ? (
+              <div className="text-center py-16 text-slate-500 font-medium">
+                Chưa có học sinh nào tham gia bài thi...
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[650px] overflow-y-auto pr-1">
+                {sortedPlayers.map((p, index) => {
+                  const rankIndex = index + 1;
+                  const currentIdx = p.currentQuestionIndex || 0;
+                  const progressPct = Math.min(100, Math.round((currentIdx / totalQuestions) * 100));
+                  const isAway = p.isTabActive === false;
+                  const hasSwitched = (p.tabSwitchCount || 0) > 0;
+                  const tier = getRankTier(p.score, totalQuestions);
 
-                            {/* Status Badge */}
-                            {p.isFinished ? (
-                              <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-xl text-[10px] font-black">
-                                ✅ Xong ({totalQuestions}/{totalQuestions})
-                              </span>
-                            ) : isAway ? (
-                              <span className="px-2.5 py-1 bg-rose-600 text-white rounded-xl text-[10px] font-black animate-bounce">
-                                🔴 RỜI TAB ({p.tabSwitchCount})
-                              </span>
-                            ) : (
-                              <span className="px-2.5 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/40 rounded-xl text-[10px] font-bold">
-                                Câu {currentIdx + 1}/{totalQuestions}
-                              </span>
-                            )}
+                  const accuracyPct = (p.totalAnswered || 0) > 0
+                    ? Math.round(((p.correctCount || 0) / p.totalAnswered!) * 100)
+                    : 0;
+
+                  return (
+                    <div
+                      key={p.id}
+                      className={`p-4 rounded-2xl border-2 transition-all duration-300 flex flex-wrap lg:flex-nowrap items-center justify-between gap-4 ${
+                        p.isFinished
+                          ? 'bg-emerald-950/20 border-emerald-500/40'
+                          : isAway
+                          ? 'bg-rose-950/40 border-rose-500 animate-pulse'
+                          : index === 0
+                          ? 'bg-slate-900 border-yellow-500/60 shadow-lg shadow-yellow-500/10'
+                          : 'bg-slate-950/90 border-slate-800 hover:border-purple-500/50'
+                      }`}
+                    >
+                      {/* Section 1: Rank Badge & Student Identity */}
+                      <div className="flex items-center gap-3 min-w-[240px]">
+                        {/* Rank Badge */}
+                        {index === 0 && (
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 font-black text-sm flex flex-col items-center justify-center shadow-lg shadow-yellow-500/30 border-2 border-yellow-200 shrink-0">
+                            <span className="text-xs">🥇</span>
+                            <span>#1</span>
                           </div>
-
-                          {/* Progress bar */}
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                              <span>Tiến độ: {currentIdx}/{totalQuestions} câu</span>
-                              <span>{progressPct}%</span>
-                            </div>
-                            <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-                              <div
-                                className={`h-full transition-all duration-500 rounded-full ${
-                                  p.isFinished
-                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                                    : isAway
-                                    ? 'bg-rose-500'
-                                    : 'bg-gradient-to-r from-purple-500 to-pink-500'
-                                }`}
-                                style={{ width: `${progressPct}%` }}
-                              />
-                            </div>
+                        )}
+                        {index === 1 && (
+                          <div className="w-11 h-11 rounded-2xl bg-gradient-to-r from-slate-200 via-slate-300 to-slate-400 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-md border-2 border-slate-200 shrink-0">
+                            <span className="text-xs">🥈</span>
+                            <span>#2</span>
                           </div>
+                        )}
+                        {index === 2 && (
+                          <div className="w-11 h-11 rounded-2xl bg-gradient-to-r from-amber-700 via-amber-800 to-amber-900 text-amber-100 font-black text-xs flex flex-col items-center justify-center shadow-md border-2 border-amber-600 shrink-0">
+                            <span className="text-xs">🥉</span>
+                            <span>#3</span>
+                          </div>
+                        )}
+                        {index > 2 && (
+                          <div className="w-10 h-10 rounded-2xl bg-slate-800 text-slate-300 font-black text-sm flex items-center justify-center border border-slate-700 shrink-0">
+                            #{rankIndex}
+                          </div>
+                        )}
 
-                          {/* Anti-cheat summary & alert button */}
-                          <div className="flex items-center justify-between pt-1 border-t border-slate-900">
-                            {hasSwitched ? (
-                              <span className="text-[10px] font-bold text-yellow-400">
-                                ⚠️ Rời tab {p.tabSwitchCount} lần
+                        {/* Avatar & Name & Rank Tier */}
+                        <div className="flex items-center gap-3">
+                          <ChibiAvatar customization={p.chibi} size="sm" isBouncing={false} />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-black text-base text-white">{p.name}</h4>
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-gradient-to-r ${tier.bgGradient} text-white shadow-sm flex items-center gap-1`}>
+                                <span>{tier.icon}</span>
+                                <span>{tier.name}</span>
                               </span>
-                            ) : (
-                              <span className="text-[10px] font-medium text-slate-500">
-                                🟢 Tập trung 100%
-                              </span>
-                            )}
+                            </div>
 
-                            <button
-                              onClick={() => {
-                                setShowTeacherAlertModal(true);
-                              }}
-                              className="px-2.5 py-1 bg-slate-800 hover:bg-purple-600/40 text-purple-300 text-[10px] font-bold rounded-lg border border-slate-700 transition-colors"
-                            >
-                              📢 Nhắc HS
-                            </button>
+                            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium mt-0.5">
+                              <span>🎯 Đúng {p.correctCount || 0}/{p.totalAnswered || 0} câu ({accuracyPct}%)</span>
+                            </div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
+                      </div>
 
-            {/* Column 3: Real-Time Leaderboard & Arena Attacks Log */}
-            <div className="lg:col-span-1">
-              <LiveLeaderboard
-                players={room.players}
-                attacks={room.attacks}
-                isFinal={false}
-                isHost={true}
-                onOpenTeacherAlert={() => setShowTeacherAlertModal(true)}
-              />
-            </div>
+                      {/* Section 2: Progress Bar */}
+                      <div className="flex-1 min-w-[200px] max-w-md space-y-1">
+                        <div className="flex justify-between text-xs font-bold text-slate-300">
+                          <span className="text-purple-300">Tiến độ: Câu {currentIdx}/{totalQuestions}</span>
+                          <span className="text-yellow-400">{progressPct}%</span>
+                        </div>
+                        <div className="w-full bg-slate-950 rounded-full h-3 border border-slate-800 overflow-hidden relative">
+                          <div
+                            className={`h-full transition-all duration-700 rounded-full ${
+                              p.isFinished
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                                : isAway
+                                ? 'bg-rose-500 animate-pulse'
+                                : 'bg-gradient-to-r from-purple-500 via-pink-500 to-yellow-400'
+                            }`}
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Section 3: Score & Streak */}
+                      <div className="flex items-center gap-3 min-w-[140px]">
+                        <div className="text-right">
+                          <div className="text-xl font-black text-yellow-400 tracking-wide">
+                            {p.score.toLocaleString()} <span className="text-xs font-bold text-slate-400">PT</span>
+                          </div>
+                          <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                            {p.streak >= 2 && (
+                              <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-md text-[10px] font-black flex items-center gap-0.5">
+                                <Flame className="w-3 h-3 text-amber-400" /> {p.streak}
+                              </span>
+                            )}
+                            {p.shieldActive && (
+                              <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded-md text-[10px] font-black flex items-center gap-0.5">
+                                <Shield className="w-3 h-3 text-cyan-400" /> Khiên
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 4: Anti-Cheat Tab Status & Action */}
+                      <div className="flex items-center gap-3 min-w-[200px] justify-end">
+                        {p.isFinished ? (
+                          <span className="px-3 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-black flex items-center gap-1">
+                            ✅ Hoàn thành ({totalQuestions}/{totalQuestions})
+                          </span>
+                        ) : isAway ? (
+                          <span className="px-3 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-black animate-bounce flex items-center gap-1 shadow-lg shadow-rose-600/30">
+                            🔴 RỜI TAB ({p.tabSwitchCount})
+                          </span>
+                        ) : hasSwitched ? (
+                          <span className="px-3 py-1.5 bg-amber-500/20 text-yellow-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center gap-1">
+                            ⚠️ Vi phạm ({p.tabSwitchCount} lần)
+                          </span>
+                        ) : (
+                          <span className="px-3 py-1.5 bg-purple-600/20 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-semibold flex items-center gap-1">
+                            🟢 Tập trung 100%
+                          </span>
+                        )}
+
+                        <button
+                          onClick={() => setShowTeacherAlertModal(true)}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-purple-600 text-purple-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 transition-all cursor-pointer shrink-0"
+                        >
+                          📢 Cảnh báo
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <TeacherAlertModal
