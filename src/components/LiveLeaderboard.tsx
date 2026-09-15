@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Player, AttackEvent } from '../types';
 import { ChibiAvatar } from './ChibiAvatar';
 import { getRankTier, LIEN_QUAN_RANKS } from '../data/rankAssets';
-import { Trophy, Shield, Flame, Swords, Medal, Zap, Sparkles, AlertTriangle, Eye, CheckCircle2, Users } from 'lucide-react';
+import { Trophy, Shield, Flame, Swords, Medal, Zap, Sparkles, AlertTriangle, Eye, CheckCircle2, Users, Megaphone } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { soundManager } from '../services/audio';
 
@@ -12,6 +12,7 @@ interface LiveLeaderboardProps {
   isFinal?: boolean;
   onNextQuestion?: () => void;
   isHost?: boolean;
+  onOpenTeacherAlert?: () => void;
 }
 
 export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
@@ -20,6 +21,7 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
   isFinal = false,
   onNextQuestion,
   isHost = false,
+  onOpenTeacherAlert,
 }) => {
   const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
   const totalQuestions = 5; // Default reference questions count for rank threshold calculation
@@ -85,6 +87,15 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
             <span className="px-3 py-1 bg-amber-500/20 rounded-xl text-amber-300 border border-amber-500/40 flex items-center gap-1.5">
               <Eye className="w-3.5 h-3.5 text-amber-400" /> ⚠️ Cảnh Báo Chuyển Tab: <strong className="text-white font-extrabold">{warnedStudents} HS</strong>
             </span>
+          )}
+
+          {isHost && onOpenTeacherAlert && (
+            <button
+              onClick={onOpenTeacherAlert}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-transform active:scale-95 cursor-pointer shrink-0"
+            >
+              <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo Học Sinh
+            </button>
           )}
         </div>
       </div>

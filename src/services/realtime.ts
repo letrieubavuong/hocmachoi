@@ -1,4 +1,4 @@
-import { GameRoom, Player, Quiz, GamePhase, AttackEvent, PowerUpType } from '../types';
+import { GameRoom, Player, Quiz, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent } from '../types';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
@@ -302,6 +302,40 @@ export class RealtimeService {
         tabSwitchCount,
       });
     }
+
+    return updatedRoom;
+  }
+
+  // Teacher: Send Warning / Announcement Alert to Student Screen(s)
+  public sendTeacherAlert(
+    roomCode: string,
+    targetId: string,
+    message: string,
+    alertType: 'WARNING' | 'SILENCE' | 'FOCUS' | 'CUSTOM' | 'PRAISE' = 'WARNING'
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    const targetPlayer = targetId !== 'ALL' ? room.players[targetId] : undefined;
+
+    const alertEvent: TeacherAlertEvent = {
+      id: Math.random().toString(36).substring(2, 9),
+      senderName: 'Giáo Viên',
+      targetId,
+      targetName: targetPlayer ? targetPlayer.name : 'Tất cả học sinh',
+      message,
+      alertType,
+      timestamp: Date.now(),
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      latestTeacherAlert: alertEvent,
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
 
     return updatedRoom;
   }

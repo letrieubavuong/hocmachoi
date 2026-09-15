@@ -13,6 +13,8 @@ import { BattleActionModal } from './components/BattleActionModal';
 import { LiveLeaderboard } from './components/LiveLeaderboard';
 import { QuizCreatorModal } from './components/QuizCreatorModal';
 import { VercelDeployGuide } from './components/VercelDeployGuide';
+import { TeacherAlertModal } from './components/TeacherAlertModal';
+import { StudentAlertModal } from './components/StudentAlertModal';
 
 import {
   Sparkles,
@@ -28,6 +30,7 @@ import {
   RotateCcw,
   Gift,
   Zap,
+  Megaphone,
 } from 'lucide-react';
 
 const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
@@ -69,6 +72,7 @@ export function App() {
   // Quiz Creator & Deploy Guide Modals
   const [showQuizCreator, setShowQuizCreator] = useState(false);
   const [showDeployGuide, setShowDeployGuide] = useState(false);
+  const [showTeacherAlertModal, setShowTeacherAlertModal] = useState(false);
 
   // Student: Anti-Cheat Tab Switch & Window Focus Monitor
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -513,12 +517,21 @@ export function App() {
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => setShowPowerUpModal(false)}
           />
+
+          <StudentAlertModal
+            alertEvent={room.latestTeacherAlert}
+            currentPlayerId={player.id}
+          />
         </div>
       );
     }
 
     return (
       <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center">
+        <StudentAlertModal
+          alertEvent={room.latestTeacherAlert}
+          currentPlayerId={player.id}
+        />
         <LiveLeaderboard
           players={room.players}
           attacks={room.attacks}
@@ -546,11 +559,23 @@ export function App() {
             >
               <RotateCcw className="w-4 h-4" /> Hủy Phòng
             </button>
+            <button
+              onClick={() => setShowTeacherAlertModal(true)}
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-transform active:scale-95 cursor-pointer"
+            >
+              <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo
+            </button>
           </div>
           <ChibiLobby
             room={room}
             isHost={true}
             onStartGame={handleStartGame}
+          />
+          <TeacherAlertModal
+            isOpen={showTeacherAlertModal}
+            onClose={() => setShowTeacherAlertModal(false)}
+            roomCode={room.roomCode}
+            players={room.players}
           />
         </div>
       );
@@ -585,12 +610,20 @@ export function App() {
               )}
             </div>
 
-            <button
-              onClick={handleNextQuestion}
-              className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-xl text-sm shadow-md"
-            >
-              Bảng Xếp Hạng / Câu Tiếp ➔
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowTeacherAlertModal(true)}
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-transform active:scale-95 cursor-pointer"
+              >
+                <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo
+              </button>
+              <button
+                onClick={handleNextQuestion}
+                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-xl text-sm shadow-md"
+              >
+                Bảng Xếp Hạng / Câu Tiếp ➔
+              </button>
+            </div>
           </div>
 
           {currentQ && (
@@ -602,6 +635,13 @@ export function App() {
               onAutoNext={handleNextQuestion}
             />
           )}
+
+          <TeacherAlertModal
+            isOpen={showTeacherAlertModal}
+            onClose={() => setShowTeacherAlertModal(false)}
+            roomCode={room.roomCode}
+            players={room.players}
+          />
         </div>
       );
     }
@@ -614,6 +654,7 @@ export function App() {
           isFinal={room.phase === 'FINISHED'}
           isHost={true}
           onNextQuestion={handleNextQuestion}
+          onOpenTeacherAlert={() => setShowTeacherAlertModal(true)}
         />
         <button
           onClick={handleResetHome}
@@ -621,6 +662,13 @@ export function App() {
         >
           Kết Thúc Bài Test & Về Trang Chủ
         </button>
+
+        <TeacherAlertModal
+          isOpen={showTeacherAlertModal}
+          onClose={() => setShowTeacherAlertModal(false)}
+          roomCode={room.roomCode}
+          players={room.players}
+        />
       </div>
     );
   }

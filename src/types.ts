@@ -74,6 +74,16 @@ export interface Player {
   lastTabSwitchTime?: number;
 }
 
+export interface TeacherAlertEvent {
+  id: string;
+  senderName: string;
+  targetId: string; // 'ALL' or player id
+  targetName?: string;
+  message: string;
+  alertType: 'WARNING' | 'SILENCE' | 'FOCUS' | 'CUSTOM' | 'PRAISE';
+  timestamp: number;
+}
+
 export interface GameRoom {
   roomCode: string;
   hostId: string;
@@ -83,6 +93,7 @@ export interface GameRoom {
   questionStartTime: number;
   players: Record<string, Player>;
   attacks: AttackEvent[];
+  latestTeacherAlert?: TeacherAlertEvent;
   updatedAt: number;
 }
 
