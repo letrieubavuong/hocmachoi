@@ -525,7 +525,7 @@ export function App() {
       if (isFinished) {
         const totalCount = questionsList.length;
         const correctCount = player.correctCount || 0;
-        const accuracyPct = Math.round((correctCount / (player.totalAnswered || totalCount || 1)) * 100);
+        const accuracyPct = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
 
         return (
           <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
@@ -792,8 +792,8 @@ export function App() {
                   const hasSwitched = (p.tabSwitchCount || 0) > 0;
                   const tier = getRankTier(p.score, totalQuestions);
 
-                  const accuracyPct = (p.totalAnswered || 0) > 0
-                    ? Math.round(((p.correctCount || 0) / p.totalAnswered!) * 100)
+                  const accuracyPct = totalQuestions > 0
+                    ? Math.round(((p.correctCount || 0) / totalQuestions) * 100)
                     : 0;
 
                   return (
@@ -849,7 +849,7 @@ export function App() {
                             </div>
 
                             <div className="flex items-center gap-2 text-xs text-slate-400 font-medium mt-0.5">
-                              <span>🎯 Đúng {p.correctCount || 0}/{p.totalAnswered || 0} câu ({accuracyPct}%)</span>
+                              <span>🎯 Đúng {p.correctCount || 0}/{totalQuestions} câu ({accuracyPct}%)</span>
                             </div>
                           </div>
                         </div>
