@@ -9,6 +9,7 @@ interface TeacherAlertModalProps {
   onClose: () => void;
   roomCode: string;
   players: Record<string, Player>;
+  initialTargetId?: string;
 }
 
 export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
@@ -16,11 +17,18 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
   onClose,
   roomCode,
   players,
+  initialTargetId = 'ALL',
 }) => {
-  const [selectedTarget, setSelectedTarget] = useState<string>('ALL');
+  const [selectedTarget, setSelectedTarget] = useState<string>(initialTargetId);
   const [customMessage, setCustomMessage] = useState('');
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [sentNotice, setSentNotice] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setSelectedTarget(initialTargetId || 'ALL');
+    }
+  }, [isOpen, initialTargetId]);
 
   if (!isOpen) return null;
 

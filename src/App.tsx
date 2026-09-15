@@ -74,10 +74,11 @@ export function App() {
   // Battle attack / powerup modal state
   const [showPowerUpModal, setShowPowerUpModal] = useState(false);
 
-  // Quiz Creator, Deploy Guide & Teacher Gift Modals
+  // Quiz Creator, Deploy Guide & Teacher Gift/Alert Modals
   const [showQuizCreator, setShowQuizCreator] = useState(false);
   const [showDeployGuide, setShowDeployGuide] = useState(false);
   const [showTeacherAlertModal, setShowTeacherAlertModal] = useState(false);
+  const [alertTargetStudentId, setAlertTargetStudentId] = useState('ALL');
   const [showTeacherGiftModal, setShowTeacherGiftModal] = useState(false);
   const [giftTargetStudentId, setGiftTargetStudentId] = useState('ALL');
 
@@ -737,7 +738,10 @@ export function App() {
                 <Gift className="w-4 h-4 text-slate-950 animate-bounce" /> 🎁 Tặng Quà Học Sinh
               </button>
               <button
-                onClick={() => setShowTeacherAlertModal(true)}
+                onClick={() => {
+                  setAlertTargetStudentId('ALL');
+                  setShowTeacherAlertModal(true);
+                }}
                 className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
                 <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo Lớp
@@ -923,7 +927,10 @@ export function App() {
                         </button>
 
                         <button
-                          onClick={() => setShowTeacherAlertModal(true)}
+                          onClick={() => {
+                            setAlertTargetStudentId(p.id);
+                            setShowTeacherAlertModal(true);
+                          }}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-purple-600 text-purple-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 transition-all cursor-pointer shrink-0"
                         >
                           📢 Cảnh báo
@@ -941,6 +948,7 @@ export function App() {
             onClose={() => setShowTeacherAlertModal(false)}
             roomCode={room.roomCode}
             players={room.players}
+            initialTargetId={alertTargetStudentId}
           />
 
           <TeacherGiftModal
@@ -962,7 +970,10 @@ export function App() {
           isFinal={room.phase === 'FINISHED'}
           isHost={true}
           onNextQuestion={handleNextQuestion}
-          onOpenTeacherAlert={() => setShowTeacherAlertModal(true)}
+          onOpenTeacherAlert={() => {
+            setAlertTargetStudentId('ALL');
+            setShowTeacherAlertModal(true);
+          }}
         />
         <button
           onClick={handleResetHome}
@@ -976,6 +987,7 @@ export function App() {
           onClose={() => setShowTeacherAlertModal(false)}
           roomCode={room.roomCode}
           players={room.players}
+          initialTargetId={alertTargetStudentId}
         />
 
         <TeacherGiftModal
