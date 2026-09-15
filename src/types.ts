@@ -141,3 +141,15 @@ export interface AttackEvent {
   powerUpType?: PowerUpType;
   timestamp: number;
 }
+
+export type TeacherAccountStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface TeacherAccount {
+  id: string;
+  email: string;
+  password?: string;
+  fullName: string;
+  schoolName?: string;
+  status: TeacherAccountStatus;
+  createdAt: number;
+}

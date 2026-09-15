@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType } from './types';
+import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
 import { realtime } from './services/realtime';
 import { soundManager } from './services/audio';
+import { TeacherAuthService } from './services/teacherAuthService';
 
 import { ChibiAvatar } from './components/ChibiAvatar';
 import { ChibiCustomizer } from './components/ChibiCustomizer';
@@ -17,6 +17,7 @@ import { TeacherAlertModal } from './components/TeacherAlertModal';
 import { StudentAlertModal } from './components/StudentAlertModal';
 import { TeacherGiftModal } from './components/TeacherGiftModal';
 import { TeacherInquiryModal } from './components/TeacherInquiryModal';
+import { TeacherAuthPanel } from './components/TeacherAuthPanel';
 
 import { getRankTier } from './data/rankAssets';
 import { shuffleStudentQuestions } from './utils/shuffle';
@@ -37,6 +38,8 @@ import {
   Zap,
   Megaphone,
   Trophy,
+  LogOut,
+  UserCheck,
 } from 'lucide-react';
 
 const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
@@ -45,6 +48,7 @@ export function App() {
   const [role, setRole] = useState<'HOME' | 'HOST' | 'PLAYER'>('HOME');
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [activeHomeTab, setActiveHomeTab] = useState<'STUDENT' | 'TEACHER'>('STUDENT');
+  const [currentTeacher, setCurrentTeacher] = useState<TeacherAccount | null>(() => TeacherAuthService.getCurrentTeacher());
   
   // Custom quizzes persistent storage
   const [quizzesList, setQuizzesList] = useState<Quiz[]>(() => {
@@ -443,66 +447,87 @@ export function App() {
               </div>
             </div>
           ) : (
-            /* ==================== TAB 2: TEACHER HOST CARD ==================== */
-            <div className="bg-slate-900/95 backdrop-blur-xl p-8 rounded-3xl border-2 border-emerald-500/50 shadow-2xl space-y-6 text-center animate-fade-in relative overflow-hidden">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 mx-auto shadow-lg shadow-emerald-500/10">
-                <Users className="w-9 h-9" />
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-2xl md:text-3xl font-black text-white">Khu Vực Tạo Sảnh Cho Giáo Viên</h2>
-                <p className="text-xs md:text-sm text-slate-300 font-medium">
-                  Chọn đề thi hoặc import đề thi LaTeX (.tex gói ex_test) để phát mã QR Code cho học sinh!
-                </p>
-              </div>
-
-              <div className="space-y-4 text-left">
-                <div>
-                  <label className="block text-xs font-black text-emerald-300 uppercase tracking-widest mb-2">
-                    📋 CHỌN BỘ CÂU HỎI QUIZ:
-                  </label>
-                  <select
-                    value={selectedQuiz.id}
-                    onChange={(e) => {
-                      const found = quizzesList.find((q) => q.id === e.target.value);
-                      if (found) setSelectedQuiz(found);
+            /* ==================== TAB 2: TEACHER HOST PANEL ==================== */
+            !currentTeacher || currentTeacher.status !== 'APPROVED' ? (
+              <TeacherAuthPanel onLoginSuccess={(acc) => setCurrentTeacher(acc)} />
+            ) : (
+              <div className="bg-slate-900/95 backdrop-blur-xl p-8 rounded-3xl border-2 border-emerald-500/50 shadow-2xl space-y-6 text-center animate-fade-in relative overflow-hidden">
+                {/* Logged in Teacher Badge Bar */}
+                <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-left">
+                    <UserCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <div>
+                      <strong className="text-white block font-black text-sm">{currentTeacher.fullName}</strong>
+                      <span className="text-emerald-300 font-mono text-[11px]">{currentTeacher.email} • [Đã Duyệt Quyền ✅]</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      TeacherAuthService.logout();
+                      setCurrentTeacher(null);
                     }}
-                    className="w-full px-4 py-3.5 bg-slate-950 border-2 border-slate-700 rounded-xl text-white font-extrabold text-sm focus:outline-none focus:border-emerald-400"
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900 text-slate-300 hover:text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 cursor-pointer shrink-0"
                   >
-                    {quizzesList.map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.title} ({q.questions.length} câu)
-                      </option>
-                    ))}
-                  </select>
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Đăng xuất</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <h2 className="text-2xl md:text-3xl font-black text-white">Khu Vực Tạo Sảnh Cho Giáo Viên</h2>
+                  <p className="text-xs md:text-sm text-slate-300 font-medium">
+                    Chọn đề thi hoặc import đề thi LaTeX (.tex gói ex_test) để phát mã QR Code cho học sinh!
+                  </p>
+                </div>
+
+                <div className="space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-black text-emerald-300 uppercase tracking-widest mb-2">
+                      📋 CHỌN BỘ CÂU HỎI QUIZ:
+                    </label>
+                    <select
+                      value={selectedQuiz.id}
+                      onChange={(e) => {
+                        const found = quizzesList.find((q) => q.id === e.target.value);
+                        if (found) setSelectedQuiz(found);
+                      }}
+                      className="w-full px-4 py-3.5 bg-slate-950 border-2 border-slate-700 rounded-xl text-white font-extrabold text-sm focus:outline-none focus:border-emerald-400"
+                    >
+                      {quizzesList.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.title} ({q.questions.length} câu)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={() => setShowQuizCreator(true)}
+                    className="w-full py-3 px-4 bg-slate-800/90 hover:bg-slate-800 text-emerald-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors shadow-md cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-emerald-400" /> Thêm/Import Đề Thi LaTeX (.tex ex_test)
+                  </button>
                 </div>
 
                 <button
-                  onClick={() => setShowQuizCreator(true)}
-                  className="w-full py-3 px-4 bg-slate-800/90 hover:bg-slate-800 text-emerald-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors shadow-md cursor-pointer"
+                  onClick={() => handleCreateRoom(selectedQuiz)}
+                  className="w-full py-4.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xl rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-3 transition-transform active:scale-95 cursor-pointer"
                 >
-                  <Plus className="w-4 h-4 text-emerald-400" /> Thêm/Import Đề Thi LaTeX (.tex ex_test)
+                  <Play className="w-6 h-6 fill-current" />
+                  ▶ TẠO SẢNH & MÃ QR CODE ➔
                 </button>
-              </div>
 
-              <button
-                onClick={() => handleCreateRoom(selectedQuiz)}
-                className="w-full py-4.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xl rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-3 transition-transform active:scale-95 cursor-pointer"
-              >
-                <Play className="w-6 h-6 fill-current" />
-                ▶ TẠO SẢNH & MÃ QR CODE ➔
-              </button>
-
-              <div className="pt-2 border-t border-slate-800">
-                <button
-                  onClick={() => setActiveHomeTab('STUDENT')}
-                  className="text-xs font-semibold text-slate-400 hover:text-purple-300 transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
-                >
-                  <span>🎓 Bạn là Học sinh muốn tham gia thi?</span>
-                  <span className="text-purple-400 font-bold underline">Nhập mã PIN ở đây ➔</span>
-                </button>
+                <div className="pt-2 border-t border-slate-800">
+                  <button
+                    onClick={() => setActiveHomeTab('STUDENT')}
+                    className="text-xs font-semibold text-slate-400 hover:text-purple-300 transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                  >
+                    <span>🎓 Bạn là Học sinh muốn tham gia thi?</span>
+                    <span className="text-purple-400 font-bold underline">Nhập mã PIN ở đây ➔</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )
           )}
         </div>
 
