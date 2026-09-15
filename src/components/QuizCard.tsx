@@ -246,6 +246,11 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           </span>
           {player && currentRank && (
             <div className="flex items-center gap-2">
+              {player.studentCode && (
+                <span className="px-2.5 py-1 bg-purple-950/80 border border-purple-500/50 text-purple-300 rounded-xl text-xs font-mono font-bold shadow-sm">
+                  🆔 {player.studentCode}
+                </span>
+              )}
               <span className={`px-2.5 py-1 rounded-xl text-xs font-black bg-gradient-to-r ${currentRank.bgGradient} text-white shadow-md flex items-center gap-1`}>
                 <span>{currentRank.icon}</span>
                 <span>{currentRank.name}</span>

@@ -202,7 +202,14 @@ export const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
                   </span>
                   <ChibiAvatar customization={player.chibi} size="sm" isBouncing={false} />
                   <div>
-                    <span className="font-extrabold text-white text-base block">{player.name}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold text-white text-base">{player.name}</span>
+                      {player.studentCode && (
+                        <span className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 text-purple-300 rounded text-[10px] font-mono font-bold">
+                          {player.studentCode}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-slate-400 font-semibold">{rank.subTitle}</span>
                   </div>
                 </div>

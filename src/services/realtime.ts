@@ -570,6 +570,33 @@ export class RealtimeService {
     return updatedRoom;
   }
 
+  // Explicitly clear player power-up state
+  public clearPlayerPowerUp(roomCode: string, playerId: string): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    if (!player.unlockedPowerUp) return room;
+
+    const updatedPlayer: Player = {
+      ...player,
+      unlockedPowerUp: null,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
+  }
+
   private broadcastToPeerClients(room: GameRoom) {
     this.connections.forEach((conn) => {
       if (conn.open) {

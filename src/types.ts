@@ -48,6 +48,7 @@ export type GamePhase = 'LOBBY' | 'QUESTION' | 'RESULT' | 'ATTACK' | 'LEADERBOAR
 
 export interface Player {
   id: string;
+  studentCode?: string;
   name: string;
   chibi: ChibiCustomization;
   score: number;

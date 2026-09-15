@@ -178,9 +178,11 @@ export function App() {
     const code = roomCodeInput.trim();
     if (!code) return;
 
-    const playerId = `player-${Date.now()}`;
+    const studentCode = `HS-${Math.floor(1000 + Math.random() * 9000)}`;
+    const playerId = `player-${studentCode.toLowerCase()}-${Math.random().toString(36).substr(2, 6)}`;
     const newPlayer: Player = {
       id: playerId,
+      studentCode,
       name,
       chibi,
       score: 0,
@@ -591,7 +593,12 @@ export function App() {
             isOpen={showPowerUpModal && !!player?.unlockedPowerUp}
             powerUpType={player.unlockedPowerUp}
             onExecutePowerUp={handleExecutePowerUp}
-            onClose={() => setShowPowerUpModal(false)}
+            onClose={() => {
+              setShowPowerUpModal(false);
+              if (room && player) {
+                realtime.clearPlayerPowerUp(room.roomCode, player.id);
+              }
+            }}
             onNextQuestion={handleStudentNextQuestion}
           />
 
