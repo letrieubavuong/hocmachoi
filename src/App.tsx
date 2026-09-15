@@ -44,6 +44,7 @@ const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
 export function App() {
   const [role, setRole] = useState<'HOME' | 'HOST' | 'PLAYER'>('HOME');
   const [roomCodeInput, setRoomCodeInput] = useState('');
+  const [activeHomeTab, setActiveHomeTab] = useState<'STUDENT' | 'TEACHER'>('STUDENT');
   
   // Custom quizzes persistent storage
   const [quizzesList, setQuizzesList] = useState<Quiz[]>(() => {
@@ -338,7 +339,7 @@ export function App() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowDeployGuide(true)}
-              className="px-4 py-2 bg-emerald-600/30 hover:bg-emerald-600/40 border border-emerald-500/50 text-emerald-300 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md"
+              className="px-4 py-2 bg-emerald-600/30 hover:bg-emerald-600/40 border border-emerald-500/50 text-emerald-300 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
             >
               <Rocket className="w-4 h-4 text-emerald-400" />
               Deploy Vercel (Free 100%)
@@ -347,37 +348,69 @@ export function App() {
         </div>
 
         {/* Main Hero Header */}
-        <div className="w-full max-w-4xl text-center my-6 z-10 space-y-4">
+        <div className="w-full max-w-4xl text-center my-4 z-10 space-y-3">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-600/20 border border-purple-500/40 text-purple-300 font-bold text-xs">
             <Sparkles className="w-4 h-4 text-yellow-400 animate-spin" />
             <span>Nền tảng Quiz Game Chibi Đấu Trường Rank Liên Quân</span>
           </div>
 
-          <h1 className="text-4xl md:text-6xl font-black tracking-tight leading-tight text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 drop-shadow-lg">
+          <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-tight text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 drop-shadow-lg">
             Học Tập Thật Vui Với Chibi Battle Quiz!
           </h1>
 
-          <p className="text-base md:text-lg text-slate-300 max-w-2xl mx-auto font-medium">
-            Quét mã QR vào phòng ngay lập tức. Đua tốc độ trả lời câu hỏi, mở rương may mắn, đóng băng đối thủ & leo Rank Liên Quân Đấu Trường!
+          <p className="text-sm md:text-base text-slate-300 max-w-2xl mx-auto font-medium">
+            Quét mã QR hoặc nhập mã PIN vào phòng ngay lập tức. Đua tốc độ trả lời câu hỏi, mở rương may mắn, đóng băng đối thủ & leo Rank Liên Quân!
           </p>
         </div>
 
-        {/* Dual Cards: Student Join & Teacher Host */}
-        <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-8 my-6 z-10">
-          {/* Card 1: Student Join */}
-          <div className="bg-slate-900/90 backdrop-blur-xl p-8 rounded-3xl border-2 border-purple-500/40 shadow-2xl flex flex-col justify-between space-y-6 hover:border-purple-400 transition-all">
-            <div className="space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-purple-600/30 border border-purple-500/50 flex items-center justify-center text-purple-300">
-                <Gamepad2 className="w-8 h-8" />
-              </div>
-              <h2 className="text-2xl font-black text-white">Dành Cho Học Sinh</h2>
-              <p className="text-xs text-slate-400">
-                Nhập 6 chữ số Mã PIN được giáo viên cung cấp để tạo nhân vật Chibi và tham gia sảnh chờ!
-              </p>
+        {/* Tab Switcher: Student vs Teacher */}
+        <div className="w-full max-w-lg z-10 my-2">
+          <div className="p-1.5 bg-slate-900/90 border-2 border-slate-800 rounded-2xl flex items-center gap-2 shadow-2xl backdrop-blur-xl">
+            <button
+              onClick={() => setActiveHomeTab('STUDENT')}
+              className={`flex-1 py-3 px-4 rounded-xl font-black text-xs md:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeHomeTab === 'STUDENT'
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/40'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Gamepad2 className="w-4 h-4" />
+              <span>🎓 DÀNH CHO HỌC SINH</span>
+            </button>
 
-              <div className="pt-2">
-                <label className="block text-xs font-bold text-slate-300 mb-2 uppercase tracking-wider">
-                  MÃ PHÒNG (GAME PIN):
+            <button
+              onClick={() => setActiveHomeTab('TEACHER')}
+              className={`flex-1 py-3 px-4 rounded-xl font-black text-xs md:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeHomeTab === 'TEACHER'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/40'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>👨‍🏫 DÀNH CHO GIÁO VIÊN</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Main Form Content Container */}
+        <div className="w-full max-w-xl my-4 z-10">
+          {activeHomeTab === 'STUDENT' ? (
+            /* ==================== TAB 1: STUDENT JOIN CARD ==================== */
+            <div className="bg-slate-900/95 backdrop-blur-xl p-8 rounded-3xl border-2 border-purple-500/50 shadow-2xl space-y-6 text-center animate-fade-in relative overflow-hidden">
+              <div className="w-16 h-16 rounded-2xl bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-300 mx-auto shadow-lg shadow-purple-500/10">
+                <Gamepad2 className="w-9 h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <h2 className="text-2xl md:text-3xl font-black text-white">Tham Gia Phòng Bài Thi</h2>
+                <p className="text-xs md:text-sm text-slate-300 font-medium">
+                  Nhập 6 chữ số Mã PIN do Giáo viên cung cấp để tạo nhân vật Chibi và tham gia Đấu Trường!
+                </p>
+              </div>
+
+              <div className="space-y-2 py-2">
+                <label className="block text-xs font-black text-purple-300 uppercase tracking-widest text-left">
+                  🔑 MÃ PHÒNG (GAME PIN):
                 </label>
                 <input
                   type="text"
@@ -385,69 +418,92 @@ export function App() {
                   placeholder="Nhập 6 chữ số (VD: 839204)..."
                   value={roomCodeInput}
                   onChange={(e) => setRoomCodeInput(e.target.value)}
-                  className="w-full px-5 py-4 bg-slate-950 border-2 border-purple-500/60 rounded-2xl text-center text-yellow-400 font-black text-3xl tracking-widest focus:outline-none focus:border-yellow-400 transition-all placeholder:text-base placeholder:tracking-normal placeholder:font-normal placeholder:text-slate-600"
+                  className="w-full px-6 py-4 bg-slate-950 border-2 border-purple-500/60 rounded-2xl text-center text-yellow-400 font-black text-3xl md:text-4xl tracking-widest focus:outline-none focus:border-yellow-400 focus:ring-4 focus:ring-purple-500/20 transition-all placeholder:text-base placeholder:tracking-normal placeholder:font-normal placeholder:text-slate-600 shadow-inner"
                 />
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                if (roomCodeInput.trim()) setRole('PLAYER');
-                else alert('Vui lòng nhập Mã PIN phòng trước!');
-              }}
-              className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-black text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-3 transition-transform active:scale-95 cursor-pointer"
-            >
-              VÀO PHÒNG CHƠI NGAY ➔
-            </button>
-          </div>
-
-          {/* Card 2: Teacher Host */}
-          <div className="bg-slate-900/90 backdrop-blur-xl p-8 rounded-3xl border-2 border-emerald-500/40 shadow-2xl flex flex-col justify-between space-y-6 hover:border-emerald-400 transition-all">
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-600/30 border border-emerald-500/50 flex items-center justify-center text-emerald-300">
-                <Users className="w-8 h-8" />
-              </div>
-              <h2 className="text-2xl font-black text-white">Dành Cho Giáo Viên (Host)</h2>
-              <p className="text-xs text-slate-400">
-                Hỗ trợ nhập trực tiếp file .tex (gói ex_test chuẩn Việt Nam) hoặc chọn bộ đề có sẵn!
-              </p>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-2 uppercase tracking-wider">
-                  CHỌN BỘ CÂU HỎI QUIZ:
-                </label>
-                <select
-                  value={selectedQuiz.id}
-                  onChange={(e) => {
-                    const found = quizzesList.find((q) => q.id === e.target.value);
-                    if (found) setSelectedQuiz(found);
-                  }}
-                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white font-extrabold text-sm focus:outline-none focus:border-emerald-400"
-                >
-                  {quizzesList.map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.title} ({q.questions.length} câu)
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <button
-                onClick={() => setShowQuizCreator(true)}
-                className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors"
+                onClick={() => {
+                  if (roomCodeInput.trim()) setRole('PLAYER');
+                  else alert('Vui lòng nhập Mã PIN phòng trước!');
+                }}
+                className="w-full py-4.5 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-black text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-3 transition-transform active:scale-95 cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-emerald-400" /> Thêm/Import Đề Thi LaTeX (.tex ex_test)
+                🚀 VÀO PHÒNG LÀM BÀI NGAY ➔
               </button>
-            </div>
 
-            <button
-              onClick={() => handleCreateRoom(selectedQuiz)}
-              className="w-full py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xl rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-3 transition-transform active:scale-95 cursor-pointer"
-            >
-              <Play className="w-6 h-6 fill-current" />
-              TẠO SẢNH & MÃ QR ➔
-            </button>
-          </div>
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  onClick={() => setActiveHomeTab('TEACHER')}
+                  className="text-xs font-semibold text-slate-400 hover:text-emerald-300 transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                >
+                  <span>👨‍🏫 Bạn là Giáo viên muốn tạo sảnh bài thi?</span>
+                  <span className="text-emerald-400 font-bold underline">Bấm vào đây ➔</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* ==================== TAB 2: TEACHER HOST CARD ==================== */
+            <div className="bg-slate-900/95 backdrop-blur-xl p-8 rounded-3xl border-2 border-emerald-500/50 shadow-2xl space-y-6 text-center animate-fade-in relative overflow-hidden">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 mx-auto shadow-lg shadow-emerald-500/10">
+                <Users className="w-9 h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <h2 className="text-2xl md:text-3xl font-black text-white">Khu Vực Tạo Sảnh Cho Giáo Viên</h2>
+                <p className="text-xs md:text-sm text-slate-300 font-medium">
+                  Chọn đề thi hoặc import đề thi LaTeX (.tex gói ex_test) để phát mã QR Code cho học sinh!
+                </p>
+              </div>
+
+              <div className="space-y-4 text-left">
+                <div>
+                  <label className="block text-xs font-black text-emerald-300 uppercase tracking-widest mb-2">
+                    📋 CHỌN BỘ CÂU HỎI QUIZ:
+                  </label>
+                  <select
+                    value={selectedQuiz.id}
+                    onChange={(e) => {
+                      const found = quizzesList.find((q) => q.id === e.target.value);
+                      if (found) setSelectedQuiz(found);
+                    }}
+                    className="w-full px-4 py-3.5 bg-slate-950 border-2 border-slate-700 rounded-xl text-white font-extrabold text-sm focus:outline-none focus:border-emerald-400"
+                  >
+                    {quizzesList.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.title} ({q.questions.length} câu)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => setShowQuizCreator(true)}
+                  className="w-full py-3 px-4 bg-slate-800/90 hover:bg-slate-800 text-emerald-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors shadow-md cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 text-emerald-400" /> Thêm/Import Đề Thi LaTeX (.tex ex_test)
+                </button>
+              </div>
+
+              <button
+                onClick={() => handleCreateRoom(selectedQuiz)}
+                className="w-full py-4.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xl rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-3 transition-transform active:scale-95 cursor-pointer"
+              >
+                <Play className="w-6 h-6 fill-current" />
+                ▶ TẠO SẢNH & MÃ QR CODE ➔
+              </button>
+
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  onClick={() => setActiveHomeTab('STUDENT')}
+                  className="text-xs font-semibold text-slate-400 hover:text-purple-300 transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                >
+                  <span>🎓 Bạn là Học sinh muốn tham gia thi?</span>
+                  <span className="text-purple-400 font-bold underline">Nhập mã PIN ở đây ➔</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Feature Badges Footer */}
