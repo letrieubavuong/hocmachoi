@@ -15,6 +15,7 @@ import { QuizCreatorModal } from './components/QuizCreatorModal';
 import { VercelDeployGuide } from './components/VercelDeployGuide';
 import { TeacherAlertModal } from './components/TeacherAlertModal';
 import { StudentAlertModal } from './components/StudentAlertModal';
+import { TeacherGiftModal } from './components/TeacherGiftModal';
 
 import { getRankTier } from './data/rankAssets';
 import { shuffleStudentQuestions } from './utils/shuffle';
@@ -73,10 +74,12 @@ export function App() {
   // Battle attack / powerup modal state
   const [showPowerUpModal, setShowPowerUpModal] = useState(false);
 
-  // Quiz Creator & Deploy Guide Modals
+  // Quiz Creator, Deploy Guide & Teacher Gift Modals
   const [showQuizCreator, setShowQuizCreator] = useState(false);
   const [showDeployGuide, setShowDeployGuide] = useState(false);
   const [showTeacherAlertModal, setShowTeacherAlertModal] = useState(false);
+  const [showTeacherGiftModal, setShowTeacherGiftModal] = useState(false);
+  const [giftTargetStudentId, setGiftTargetStudentId] = useState('ALL');
 
   // Student: Anti-Cheat Tab Switch & Window Focus Monitor
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -264,6 +267,13 @@ export function App() {
     const result = realtime.executePowerUp(room.roomCode, player.id, targetId, powerUpType);
     setShowPowerUpModal(false);
     return result;
+  };
+
+  // Teacher: Send Gift / Power-Up Reward to Students
+  const handleSendTeacherGift = (targetId: string, powerUpType: PowerUpType, giftTitle: string) => {
+    if (!room) return;
+    const updatedRoom = realtime.grantTeacherReward(room.roomCode, targetId, powerUpType, giftTitle);
+    if (updatedRoom) setRoom(updatedRoom);
   };
 
   // Save new custom quiz into localStorage persistently!
@@ -518,7 +528,11 @@ export function App() {
 
         return (
           <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
-            <StudentAlertModal alertEvent={room.latestTeacherAlert} currentPlayerId={player.id} />
+            <StudentAlertModal
+              alertEvent={room.latestTeacherAlert}
+              giftEvent={room.latestTeacherGift}
+              currentPlayerId={player.id}
+            />
 
             <div className="w-full max-w-2xl bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 shadow-2xl text-center space-y-6 animate-fade-in mb-8">
               <div className="w-20 h-20 bg-emerald-500/20 border-2 border-emerald-400 rounded-full flex items-center justify-center text-4xl mx-auto shadow-lg shadow-emerald-500/20">
@@ -602,7 +616,11 @@ export function App() {
             onNextQuestion={handleStudentNextQuestion}
           />
 
-          <StudentAlertModal alertEvent={room.latestTeacherAlert} currentPlayerId={player.id} />
+          <StudentAlertModal
+            alertEvent={room.latestTeacherAlert}
+            giftEvent={room.latestTeacherGift}
+            currentPlayerId={player.id}
+          />
         </div>
       );
     }
@@ -611,6 +629,7 @@ export function App() {
       <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center">
         <StudentAlertModal
           alertEvent={room.latestTeacherAlert}
+          giftEvent={room.latestTeacherGift}
           currentPlayerId={player.id}
         />
         <LiveLeaderboard
@@ -708,6 +727,15 @@ export function App() {
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setGiftTargetStudentId('ALL');
+                  setShowTeacherGiftModal(true);
+                }}
+                className="px-4 py-2.5 bg-gradient-to-r from-yellow-500 via-amber-500 to-pink-500 hover:from-yellow-400 hover:to-pink-400 text-slate-950 font-black text-xs rounded-2xl shadow-lg shadow-yellow-500/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
+              >
+                <Gift className="w-4 h-4 text-slate-950 animate-bounce" /> 🎁 Tặng Quà Học Sinh
+              </button>
               <button
                 onClick={() => setShowTeacherAlertModal(true)}
                 className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
@@ -885,6 +913,16 @@ export function App() {
                         )}
 
                         <button
+                          onClick={() => {
+                            setGiftTargetStudentId(p.id);
+                            setShowTeacherGiftModal(true);
+                          }}
+                          className="px-3 py-1.5 bg-yellow-500/20 hover:bg-yellow-500 text-yellow-300 hover:text-slate-950 text-xs font-bold rounded-xl border border-yellow-500/40 transition-all cursor-pointer shrink-0"
+                        >
+                          🎁 Tặng quà
+                        </button>
+
+                        <button
                           onClick={() => setShowTeacherAlertModal(true)}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-purple-600 text-purple-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 transition-all cursor-pointer shrink-0"
                         >
@@ -903,6 +941,14 @@ export function App() {
             onClose={() => setShowTeacherAlertModal(false)}
             roomCode={room.roomCode}
             players={room.players}
+          />
+
+          <TeacherGiftModal
+            isOpen={showTeacherGiftModal}
+            onClose={() => setShowTeacherGiftModal(false)}
+            players={Object.values(room.players)}
+            onSendGift={handleSendTeacherGift}
+            initialTargetId={giftTargetStudentId}
           />
         </div>
       );
@@ -930,6 +976,14 @@ export function App() {
           onClose={() => setShowTeacherAlertModal(false)}
           roomCode={room.roomCode}
           players={room.players}
+        />
+
+        <TeacherGiftModal
+          isOpen={showTeacherGiftModal}
+          onClose={() => setShowTeacherGiftModal(false)}
+          players={Object.values(room.players)}
+          onSendGift={handleSendTeacherGift}
+          initialTargetId={giftTargetStudentId}
         />
       </div>
     );

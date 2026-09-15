@@ -1,4 +1,4 @@
-import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent } from '../types';
+import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent } from '../types';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
@@ -264,7 +264,6 @@ export class RealtimeService {
         'ATTACK',
         'FREEZE',
         'MYSTERY_BOX',
-        'SWAP_SCORE',
         'BOMB',
         'ROCKET_BOOST',
         'REFLECT_SHIELD',
@@ -439,6 +438,82 @@ export class RealtimeService {
     return updatedRoom;
   }
 
+  // Teacher: Grant Reward / Power-Up to a Specific Student or All Students
+  public grantTeacherReward(
+    roomCode: string,
+    targetId: string, // 'ALL' or player id
+    powerUpType: PowerUpType,
+    giftTitle: string
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    const targetPlayer = targetId !== 'ALL' ? room.players[targetId] : undefined;
+    const giftEvent: TeacherGiftEvent = {
+      id: Math.random().toString(36).substring(2, 9),
+      senderName: 'Giáo Viên',
+      targetId,
+      targetName: targetPlayer ? targetPlayer.name : 'Tất cả học sinh',
+      powerUpType,
+      giftTitle,
+      timestamp: Date.now(),
+    };
+
+    const updatedPlayers = { ...room.players };
+
+    const applyGiftToPlayer = (p: Player): Player => {
+      let score = p.score;
+      let shieldActive = p.shieldActive;
+      let shieldCount = p.shieldCount;
+      let doublePointsActive = p.doublePointsActive;
+      let oracle5050Active = p.oracle5050Active;
+      let reflectShieldActive = p.reflectShieldActive;
+
+      if (powerUpType === 'MYSTERY_BOX' || powerUpType === 'ROCKET_BOOST') {
+        score += 300;
+      } else if (powerUpType === 'SHIELD') {
+        shieldActive = true;
+        shieldCount += 1;
+      } else if (powerUpType === 'DOUBLE_POINTS') {
+        doublePointsActive = true;
+      } else if (powerUpType === 'ORACLE_5050') {
+        oracle5050Active = true;
+      } else if (powerUpType === 'REFLECT_SHIELD') {
+        reflectShieldActive = true;
+      }
+
+      return {
+        ...p,
+        score,
+        shieldActive,
+        shieldCount,
+        doublePointsActive,
+        oracle5050Active,
+        reflectShieldActive,
+        unlockedPowerUp: powerUpType,
+      };
+    };
+
+    if (targetId === 'ALL') {
+      Object.keys(updatedPlayers).forEach((pId) => {
+        updatedPlayers[pId] = applyGiftToPlayer(updatedPlayers[pId]);
+      });
+    } else if (updatedPlayers[targetId]) {
+      updatedPlayers[targetId] = applyGiftToPlayer(updatedPlayers[targetId]);
+    }
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: updatedPlayers,
+      latestTeacherGift: giftEvent,
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
+  }
+
   // Execute Power-Up Action (Supports 10 Epic Power-Ups!)
   public executePowerUp(
     roomCode: string,
@@ -481,11 +556,6 @@ export class RealtimeService {
         stolenPoints = Math.max(30, Math.round(target.score * 0.2));
         updatedTarget.score = Math.max(0, target.score - stolenPoints);
         updatedAttacker.score += stolenPoints;
-      } else if (powerUpType === 'SWAP_SCORE') {
-        // SWAP SCORE: Directly swap total scores!
-        const tempScore = updatedAttacker.score;
-        updatedAttacker.score = updatedTarget.score;
-        updatedTarget.score = tempScore;
       } else if (powerUpType === 'FREEZE') {
         updatedTarget.isFrozen = true;
       } else if (powerUpType === 'BOMB') {

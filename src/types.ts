@@ -15,7 +15,6 @@ export type PowerUpType =
   | 'DOUBLE_POINTS' 
   | 'FREEZE' 
   | 'MYSTERY_BOX' 
-  | 'SWAP_SCORE' 
   | 'BOMB' 
   | 'ORACLE_5050' 
   | 'ROCKET_BOOST' 
@@ -40,8 +39,10 @@ export interface Quiz {
   id: string;
   title: string;
   description: string;
-  subject: string;
+  grade?: string;
+  subject?: string;
   questions: Question[];
+  createdAt?: number;
 }
 
 export type GamePhase = 'LOBBY' | 'QUESTION' | 'RESULT' | 'ATTACK' | 'LEADERBOARD' | 'FINISHED';
@@ -90,6 +91,16 @@ export interface TeacherAlertEvent {
   timestamp: number;
 }
 
+export interface TeacherGiftEvent {
+  id: string;
+  senderName: string;
+  targetId: string; // 'ALL' or player id
+  targetName?: string;
+  powerUpType: PowerUpType;
+  giftTitle: string;
+  timestamp: number;
+}
+
 export interface GameRoom {
   roomCode: string;
   hostId: string;
@@ -100,6 +111,7 @@ export interface GameRoom {
   players: Record<string, Player>;
   attacks: AttackEvent[];
   latestTeacherAlert?: TeacherAlertEvent;
+  latestTeacherGift?: TeacherGiftEvent;
   updatedAt: number;
 }
 

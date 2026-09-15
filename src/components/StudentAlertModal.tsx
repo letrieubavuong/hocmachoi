@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { TeacherAlertEvent } from '../types';
-import { Megaphone, CheckCircle, Volume2, ShieldAlert } from 'lucide-react';
+import { TeacherAlertEvent, TeacherGiftEvent } from '../types';
+import { Megaphone, CheckCircle, Gift, Zap, Shield, Eye, Rocket, Sparkles } from 'lucide-react';
 import { soundManager } from '../services/audio';
 
 interface StudentAlertModalProps {
   alertEvent?: TeacherAlertEvent;
+  giftEvent?: TeacherGiftEvent;
   currentPlayerId?: string;
 }
 
 export const StudentAlertModal: React.FC<StudentAlertModalProps> = ({
   alertEvent,
+  giftEvent,
   currentPlayerId,
 }) => {
   const [dismissedAlertId, setDismissedAlertId] = useState<string | null>(null);
+  const [dismissedGiftId, setDismissedGiftId] = useState<string | null>(null);
 
   useEffect(() => {
     if (alertEvent && alertEvent.id !== dismissedAlertId) {
@@ -22,6 +25,49 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = ({
     }
   }, [alertEvent, currentPlayerId, dismissedAlertId]);
 
+  useEffect(() => {
+    if (giftEvent && giftEvent.id !== dismissedGiftId) {
+      if (giftEvent.targetId === 'ALL' || giftEvent.targetId === currentPlayerId) {
+        soundManager.playCorrect();
+      }
+    }
+  }, [giftEvent, currentPlayerId, dismissedGiftId]);
+
+  // Priority 1: Render Teacher Gift Modal if active for this student
+  if (giftEvent && dismissedGiftId !== giftEvent.id && (giftEvent.targetId === 'ALL' || giftEvent.targetId === currentPlayerId)) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-lg flex items-center justify-center p-4 animate-fade-in font-sans">
+        <div className="w-full max-w-lg bg-gradient-to-b from-yellow-950 via-slate-900 to-purple-950 border-2 border-yellow-400 rounded-3xl p-6 shadow-2xl space-y-6 text-center relative overflow-hidden animate-bounce-slow">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md bg-yellow-500/20 text-yellow-300 border-yellow-400/50">
+            <Gift className="w-5 h-5 text-yellow-400 animate-bounce" />
+            <span>🎉 GIÁO VIÊN VỪA TẶNG QUÀ</span>
+          </div>
+
+          <div className="space-y-3 py-2">
+            <div className="w-20 h-20 bg-yellow-500/20 border-2 border-yellow-400 rounded-full flex items-center justify-center text-4xl mx-auto shadow-lg shadow-yellow-500/20">
+              🎁
+            </div>
+            <h3 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-400 to-pink-300 leading-relaxed tracking-wide">
+              {giftEvent.giftTitle}
+            </h3>
+            <p className="text-sm text-slate-200 font-semibold">
+              Giáo viên đã gửi tặng <strong className="text-yellow-300">{giftEvent.giftTitle}</strong> cho {giftEvent.targetId === 'ALL' ? 'cả lớp' : 'bạn'}!
+            </p>
+          </div>
+
+          <button
+            onClick={() => setDismissedGiftId(giftEvent.id)}
+            className="w-full py-4 bg-gradient-to-r from-yellow-500 via-amber-500 to-pink-500 hover:from-yellow-400 hover:to-pink-400 text-slate-950 font-black text-lg rounded-2xl shadow-xl shadow-yellow-500/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
+          >
+            <CheckCircle className="w-5 h-5 text-slate-950" />
+            NHẬN QUÀ & TIẾP TỤC LÀM BÀI ➔
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Priority 2: Render Teacher Alert Modal if active
   if (!alertEvent) return null;
   if (dismissedAlertId === alertEvent.id) return null;
   if (alertEvent.targetId !== 'ALL' && alertEvent.targetId !== currentPlayerId) return null;
@@ -69,7 +115,7 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-lg flex items-center justify-center p-4 animate-fade-in">
       <div className={`w-full max-w-lg bg-gradient-to-b ${style.bg} border-2 ${style.border} rounded-3xl p-6 shadow-2xl space-y-6 text-center relative overflow-hidden animate-bounce-slow`}>
         {/* Top Header Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md mx-auto ${style.badgeBg}">
+        <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md mx-auto ${style.badgeBg}`}>
           <span className="text-lg">{style.icon}</span>
           <span>{style.title}</span>
         </div>

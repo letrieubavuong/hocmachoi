@@ -86,7 +86,6 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
         <h2 className="text-2xl font-black text-white mb-2">
           {currentPowerType === 'ATTACK' && '⚔️ THẺ TẤN CÔNG CƯỚP ĐIỂM!'}
           {currentPowerType === 'FREEZE' && '❄️ THẺ ĐÓNG BĂNG MÀN HÌNH!'}
-          {currentPowerType === 'SWAP_SCORE' && '🔀 THẺ HOÁN ĐỔI ĐIỂM SỐ!'}
           {currentPowerType === 'BOMB' && '💣 BOM HẸN GIỜ GIẢM THỜI GIAN!'}
           {currentPowerType === 'DOUBLE_POINTS' && '⚡ THẺ NHÂN 2 ĐIỂM SỐ!'}
           {currentPowerType === 'MYSTERY_BOX' && '🎁 RƯƠNG KHO BÁU MAY MẮN!'}
@@ -99,7 +98,6 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
         <p className="text-xs text-slate-300 mb-6">
           {currentPowerType === 'ATTACK' && 'Chọn đối thủ để cướp 20% điểm số! (Có thể bị Khiên chặn)'}
           {currentPowerType === 'FREEZE' && 'Chọn 1 đối thủ để đóng băng màn hình trong 6 giây!'}
-          {currentPowerType === 'SWAP_SCORE' && 'Đổi trực tiếp toàn bộ điểm số của bạn với 1 đối thủ!'}
           {currentPowerType === 'BOMB' && 'Đặt bom hẹn giờ làm giảm 50% thời gian suy nghĩ của đối thủ!'}
           {currentPowerType === 'DOUBLE_POINTS' && 'Kích hoạt nhân 2 điểm số cho câu hỏi tiếp theo!'}
           {currentPowerType === 'MYSTERY_BOX' && 'Mở rương kho báu để nhận ngẫu nhiên điểm thưởng khủng!'}
@@ -132,18 +130,6 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
                 <h3 className="text-xl font-black text-red-400">TÊN LỬA TĂNG TỐC!</h3>
                 <p className="text-sm text-slate-300">
                   Bạn vừa kích hoạt tên lửa và phóng thẳng lên với <strong className="text-yellow-400 font-bold">+300 Điểm Thăng Hạng</strong>!
-                </p>
-              </div>
-            )}
-
-            {battleResult.type === 'SWAP_SCORE' && (
-              <div className="space-y-3">
-                <div className="w-16 h-16 mx-auto rounded-full bg-purple-500/20 border-2 border-purple-400 flex items-center justify-center">
-                  <Repeat className="w-9 h-9 text-purple-400 animate-spin" />
-                </div>
-                <h3 className="text-xl font-black text-purple-300">HOÁN ĐỔI ĐIỂM THÀNH CÔNG!</h3>
-                <p className="text-sm text-slate-300">
-                  Bạn và <strong className="text-white">{battleResult.targetName}</strong> đã hoán đổi toàn bộ điểm số cho nhau!
                 </p>
               </div>
             )}
@@ -323,7 +309,6 @@ function PowerIcon({ type, size = 'sm' }: { type: PowerUpType; size?: 'sm' | 'lg
   if (type === 'FREEZE') return <Snowflake className={`${s} animate-spin`} />;
   if (type === 'DOUBLE_POINTS') return <Zap className={`${s} animate-bounce`} />;
   if (type === 'MYSTERY_BOX') return <Gift className={`${s} animate-bounce`} />;
-  if (type === 'SWAP_SCORE') return <Repeat className={`${s} animate-spin`} />;
   if (type === 'BOMB') return <Bomb className={`${s} animate-pulse`} />;
   if (type === 'ORACLE_5050') return <Eye className={`${s} animate-pulse`} />;
   if (type === 'ROCKET_BOOST') return <Rocket className={`${s} animate-bounce`} />;
