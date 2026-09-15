@@ -16,6 +16,7 @@ interface BattleActionModalProps {
     mysteryBonus?: number;
   } | null;
   onClose: () => void;
+  onNextQuestion?: () => void;
 }
 
 export const BattleActionModal: React.FC<BattleActionModalProps> = ({
@@ -25,6 +26,7 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   powerUpType = 'ATTACK',
   onExecutePowerUp,
   onClose,
+  onNextQuestion,
 }) => {
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [battleResult, setBattleResult] = useState<{
@@ -219,10 +221,13 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
             )}
 
             <button
-              onClick={onClose}
-              className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-xl shadow-lg transition-transform active:scale-95"
+              onClick={() => {
+                onClose();
+                if (onNextQuestion) onNextQuestion();
+              }}
+              className="w-full py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-black text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
             >
-              Tiếp Tục Chơi
+              TIẾP TỤC CHƠI & SANG CÂU TIẾP ➔
             </button>
           </div>
         ) : (
@@ -245,8 +250,18 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
                   {validTargets.length === 0 ? (
-                    <div className="col-span-2 py-8 text-slate-400 font-bold text-sm">
-                      Chưa có đối thủ khác trong phòng để nhắm tới!
+                    <div className="col-span-2 py-6 space-y-3">
+                      <div className="text-slate-400 font-bold text-sm">
+                        Chưa có đối thủ khác trong phòng để nhắm tới!
+                      </div>
+                      <button
+                        onClick={() => {
+                          handleExecute(attacker.id);
+                        }}
+                        className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-sm rounded-xl shadow-lg"
+                      >
+                        KÍCH HOẠT BẢN THÂN & SANG CÂU TIẾP ➔
+                      </button>
                     </div>
                   ) : (
                     validTargets.map((opp) => {

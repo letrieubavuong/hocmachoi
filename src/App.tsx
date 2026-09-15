@@ -516,6 +516,7 @@ export function App() {
             powerUpType={player.unlockedPowerUp}
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => setShowPowerUpModal(false)}
+            onNextQuestion={handleNextQuestion}
           />
 
           <StudentAlertModal
