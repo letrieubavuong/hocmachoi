@@ -16,6 +16,7 @@ import { VercelDeployGuide } from './components/VercelDeployGuide';
 import { TeacherAlertModal } from './components/TeacherAlertModal';
 import { StudentAlertModal } from './components/StudentAlertModal';
 import { TeacherGiftModal } from './components/TeacherGiftModal';
+import { TeacherInquiryModal } from './components/TeacherInquiryModal';
 
 import { getRankTier } from './data/rankAssets';
 import { shuffleStudentQuestions } from './utils/shuffle';
@@ -81,6 +82,7 @@ export function App() {
   const [alertTargetStudentId, setAlertTargetStudentId] = useState('ALL');
   const [showTeacherGiftModal, setShowTeacherGiftModal] = useState(false);
   const [giftTargetStudentId, setGiftTargetStudentId] = useState('ALL');
+  const [selectedInquiryStudent, setSelectedInquiryStudent] = useState<Player | null>(null);
 
   // Student: Anti-Cheat Tab Switch & Window Focus Monitor
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -266,6 +268,20 @@ export function App() {
     }
 
     const updatedRoom = realtime.updatePlayerStats(room.roomCode, player.id, scoreToAdd, isCorrect);
+    if (updatedRoom) setRoom(updatedRoom);
+  };
+
+  // Student: Send Question Inquiry to Teacher
+  const handleSendInquiry = (questionNumber: number, question: Question) => {
+    if (!room || !player) return;
+    const updatedRoom = realtime.submitStudentInquiry(room.roomCode, player.id, questionNumber, question);
+    if (updatedRoom) setRoom(updatedRoom);
+  };
+
+  // Teacher: Resolve Student Question Inquiry
+  const handleResolveInquiry = (playerId: string) => {
+    if (!room) return;
+    const updatedRoom = realtime.resolveStudentInquiry(room.roomCode, playerId);
     if (updatedRoom) setRoom(updatedRoom);
   };
 
@@ -607,6 +623,7 @@ export function App() {
             onAnswerSubmit={handleAnswerSubmit}
             onAutoNext={handleStudentNextQuestion}
             onUnfreeze={handleUnfreezePlayer}
+            onSendInquiry={handleSendInquiry}
           />
 
           <BattleActionModal
@@ -867,6 +884,11 @@ export function App() {
                                   🎲 Lô tô ({p.rapidGuessCount} lần)
                                 </span>
                               )}
+                              {p.pendingInquiry && (
+                                <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded text-[10px] font-bold flex items-center gap-1 animate-pulse">
+                                  💬 Thắc mắc câu {p.pendingInquiry.questionNumber}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -933,6 +955,15 @@ export function App() {
                           </span>
                         )}
 
+                        {p.pendingInquiry && (
+                          <button
+                            onClick={() => setSelectedInquiryStudent(p)}
+                            className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 text-xs font-black rounded-xl border-2 border-amber-300 shadow-lg shadow-amber-500/30 animate-bounce flex items-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <span>💬 GIẢI ĐÁP CÂU {p.pendingInquiry.questionNumber}</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => {
                             setGiftTargetStudentId(p.id);
@@ -974,6 +1005,20 @@ export function App() {
             players={Object.values(room.players)}
             onSendGift={handleSendTeacherGift}
             initialTargetId={giftTargetStudentId}
+          />
+
+          <TeacherInquiryModal
+            isOpen={!!selectedInquiryStudent && !!selectedInquiryStudent.pendingInquiry}
+            inquiry={selectedInquiryStudent ? selectedInquiryStudent.pendingInquiry || null : null}
+            onResolve={(playerId) => {
+              handleResolveInquiry(playerId);
+              setSelectedInquiryStudent(null);
+            }}
+            onSendReward={(playerId) => {
+              setGiftTargetStudentId(playerId);
+              setShowTeacherGiftModal(true);
+            }}
+            onClose={() => setSelectedInquiryStudent(null)}
           />
         </div>
       );

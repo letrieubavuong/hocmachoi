@@ -1,4 +1,4 @@
-import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent } from '../types';
+import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent } from '../types';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
@@ -666,6 +666,82 @@ export class RealtimeService {
     const updatedPlayer: Player = {
       ...player,
       isFrozen: false,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
+  }
+
+  // Student: Submit Question Inquiry to Teacher
+  public submitStudentInquiry(
+    roomCode: string,
+    playerId: string,
+    questionNumber: number,
+    question: Question,
+    note?: string
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    const inquiryEvent: StudentInquiryEvent = {
+      id: Math.random().toString(36).substring(2, 9),
+      playerId,
+      studentName: player.name,
+      studentCode: player.studentCode,
+      questionNumber,
+      question,
+      note,
+      timestamp: Date.now(),
+      resolved: false,
+    };
+
+    const updatedPlayer: Player = {
+      ...player,
+      pendingInquiry: inquiryEvent,
+    };
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: {
+        ...room.players,
+        [playerId]: updatedPlayer,
+      },
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'SUBMIT_INQUIRY',
+        inquiry: inquiryEvent,
+      });
+    }
+
+    return updatedRoom;
+  }
+
+  // Teacher: Resolve Student Inquiry
+  public resolveStudentInquiry(roomCode: string, playerId: string): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const player = room.players[playerId];
+    const updatedPlayer: Player = {
+      ...player,
+      pendingInquiry: null,
     };
 
     const updatedRoom: GameRoom = {

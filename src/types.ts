@@ -81,6 +81,19 @@ export interface Player {
   correctCount?: number;
   shuffledQuestions?: Question[];
   isFinished?: boolean;
+  pendingInquiry?: StudentInquiryEvent | null;
+}
+
+export interface StudentInquiryEvent {
+  id: string;
+  playerId: string;
+  studentName: string;
+  studentCode?: string;
+  questionNumber: number;
+  question: Question;
+  note?: string;
+  timestamp: number;
+  resolved?: boolean;
 }
 
 export interface TeacherAlertEvent {

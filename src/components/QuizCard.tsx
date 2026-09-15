@@ -3,7 +3,7 @@ import { Question, Player } from '../types';
 import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
 import { getRankTier } from '../data/rankAssets';
-import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, Check, X, Send, Eye, Snowflake, Sparkles, Bomb } from 'lucide-react';
+import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, Check, X, Send, Eye, Snowflake, Sparkles, Bomb, HelpCircle } from 'lucide-react';
 
 interface QuizCardProps {
   question: Question;
@@ -13,6 +13,7 @@ interface QuizCardProps {
   onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => void;
   onAutoNext?: () => void;
   onUnfreeze?: () => void;
+  onSendInquiry?: (questionNumber: number, question: Question) => void;
 }
 
 export const QuizCard: React.FC<QuizCardProps> = ({
@@ -23,9 +24,11 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   onAnswerSubmit,
   onAutoNext,
   onUnfreeze,
+  onSendInquiry,
 }) => {
   const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
+  const [hasSentInquiry, setHasSentInquiry] = useState(false);
   const [freezeSeconds, setFreezeSeconds] = useState(10);
 
   // 1. Multiple Choice state
@@ -67,6 +70,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setShortInput('');
     setIsAnswered(false);
     setLastEarnedScore(null);
+    setHasSentInquiry(false);
     autoNextFiredRef.current = false;
     if (autoNextTimerRef.current) {
       clearTimeout(autoNextTimerRef.current);
@@ -270,12 +274,33 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           )}
         </div>
 
-        {/* Elapsed Stopwatch Timer */}
-        <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
-          <Clock className="w-4 h-4 text-purple-400" />
-          <span className="font-extrabold text-sm text-slate-200 font-mono">
-            Thời gian: <span className="text-yellow-400">{formatTimeSpent(timeSpent)}</span>
-          </span>
+        {/* Elapsed Stopwatch Timer & Question Inquiry Button */}
+        <div className="flex items-center gap-3">
+          {onSendInquiry && (
+            <button
+              onClick={() => {
+                if (!hasSentInquiry) {
+                  setHasSentInquiry(true);
+                  onSendInquiry(questionNumber, question);
+                }
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-md ${
+                hasSentInquiry
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 cursor-default'
+                  : 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-yellow-300 border-amber-400/40 hover:border-amber-400 active:scale-95'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>{hasSentInquiry ? '💬 Đã gửi thắc mắc cho GV' : '❓ Thắc mắc câu này'}</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+            <Clock className="w-4 h-4 text-purple-400" />
+            <span className="font-extrabold text-sm text-slate-200 font-mono">
+              Thời gian: <span className="text-yellow-400">{formatTimeSpent(timeSpent)}</span>
+            </span>
+          </div>
         </div>
       </div>
 
