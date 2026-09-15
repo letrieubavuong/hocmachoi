@@ -1,4 +1,4 @@
-import { GameRoom, Player, Quiz, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent } from '../types';
+import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent } from '../types';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';

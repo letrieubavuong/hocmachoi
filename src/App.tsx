@@ -739,7 +739,7 @@ export function App() {
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
-                              <ChibiAvatar chibi={p.chibi} size="sm" />
+                              <ChibiAvatar customization={p.chibi} size="sm" />
                               <div>
                                 <h4 className="font-extrabold text-sm text-white">{p.name}</h4>
                                 <div className="text-[11px] text-slate-400 font-medium">
