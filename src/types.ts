@@ -72,6 +72,11 @@ export interface Player {
   tabSwitchCount?: number;
   isTabActive?: boolean;
   lastTabSwitchTime?: number;
+  currentQuestionIndex?: number;
+  totalAnswered?: number;
+  correctCount?: number;
+  shuffledQuestions?: Question[];
+  isFinished?: boolean;
 }
 
 export interface TeacherAlertEvent {

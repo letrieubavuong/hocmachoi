@@ -16,6 +16,8 @@ import { VercelDeployGuide } from './components/VercelDeployGuide';
 import { TeacherAlertModal } from './components/TeacherAlertModal';
 import { StudentAlertModal } from './components/StudentAlertModal';
 
+import { shuffleStudentQuestions } from './utils/shuffle';
+
 import {
   Sparkles,
   Gamepad2,
@@ -219,7 +221,8 @@ export function App() {
   const handleAnswerSubmit = (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => {
     if (!room || !player) return;
 
-    const currentQ = room.quiz.questions[room.currentQuestionIndex];
+    const questionsList = player.shuffledQuestions || room.quiz.questions;
+    const currentQ = questionsList[player.currentQuestionIndex || 0];
     let scoreToAdd = 0;
     if (isCorrect && currentQ) {
       let speedBonus = 0;
@@ -476,7 +479,62 @@ export function App() {
     }
 
     if (room.phase === 'QUESTION') {
-      const currentQ = room.quiz.questions[room.currentQuestionIndex] || {
+      // Ensure student has shuffled questions initialized
+      if (!player.shuffledQuestions || player.shuffledQuestions.length === 0) {
+        const shuffled = shuffleStudentQuestions(room.quiz.questions);
+        realtime.initializePlayerQuestions(room.roomCode, player.id, shuffled);
+      }
+
+      const questionsList = player.shuffledQuestions || room.quiz.questions;
+      const currentQIdx = player.currentQuestionIndex || 0;
+      const isFinished = player.isFinished || currentQIdx >= questionsList.length;
+
+      const opponents = Object.values(room.players);
+
+      if (isFinished) {
+        const totalCount = questionsList.length;
+        const correctCount = player.correctCount || 0;
+        const accuracyPct = Math.round((correctCount / (player.totalAnswered || totalCount || 1)) * 100);
+
+        return (
+          <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
+            <StudentAlertModal alertEvent={room.latestTeacherAlert} currentPlayerId={player.id} />
+
+            <div className="w-full max-w-2xl bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 shadow-2xl text-center space-y-6 animate-fade-in mb-8">
+              <div className="w-20 h-20 bg-emerald-500/20 border-2 border-emerald-400 rounded-full flex items-center justify-center text-4xl mx-auto shadow-lg shadow-emerald-500/20">
+                🎉
+              </div>
+              <h2 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-emerald-400 to-teal-300">
+                Chúc Mừng Bạn Đã Hoàn Thành Bài Thi!
+              </h2>
+              <p className="text-sm text-slate-300 font-medium">
+                Bạn đã trả lời hết tất cả câu hỏi. Dưới đây là kết quả của bạn và Bảng Xếp Hạng trực tiếp!
+              </p>
+
+              <div className="grid grid-cols-3 gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="p-3 text-center">
+                  <div className="text-xs text-slate-400 font-bold uppercase">Tổng Điểm</div>
+                  <div className="text-2xl font-black text-yellow-400 mt-1">{player.score.toLocaleString()}</div>
+                </div>
+                <div className="p-3 text-center border-x border-slate-800">
+                  <div className="text-xs text-slate-400 font-bold uppercase">Đúng / Tổng</div>
+                  <div className="text-2xl font-black text-emerald-400 mt-1">{correctCount} / {totalCount}</div>
+                </div>
+                <div className="p-3 text-center">
+                  <div className="text-xs text-slate-400 font-bold uppercase">Tỷ Lệ Đúng</div>
+                  <div className="text-2xl font-black text-cyan-400 mt-1">{accuracyPct}%</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="w-full max-w-4xl">
+              <LiveLeaderboard players={room.players} attacks={room.attacks} isFinal={false} />
+            </div>
+          </div>
+        );
+      }
+
+      const currentQ = questionsList[currentQIdx] || {
         id: 'fallback-q',
         questionText: 'Đang tải câu hỏi...',
         options: ['A', 'B', 'C', 'D'],
@@ -484,7 +542,6 @@ export function App() {
         timeLimit: 20,
         points: 100,
       };
-      const opponents = Object.values(room.players);
 
       return (
         <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
@@ -502,11 +559,11 @@ export function App() {
 
           <QuizCard
             question={currentQ}
-            questionNumber={room.currentQuestionIndex + 1}
-            totalQuestions={room.quiz.questions.length || 1}
+            questionNumber={currentQIdx + 1}
+            totalQuestions={questionsList.length || 1}
             player={player}
             onAnswerSubmit={handleAnswerSubmit}
-            onAutoNext={handleNextQuestion}
+            onAutoNext={() => {}}
           />
 
           <BattleActionModal
@@ -516,13 +573,10 @@ export function App() {
             powerUpType={player.unlockedPowerUp}
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => setShowPowerUpModal(false)}
-            onNextQuestion={handleNextQuestion}
+            onNextQuestion={() => {}}
           />
 
-          <StudentAlertModal
-            alertEvent={room.latestTeacherAlert}
-            currentPlayerId={player.id}
-          />
+          <StudentAlertModal alertEvent={room.latestTeacherAlert} currentPlayerId={player.id} />
         </div>
       );
     }
@@ -583,58 +637,193 @@ export function App() {
     }
 
     if (room.phase === 'QUESTION') {
-      const currentQ = room.quiz.questions[room.currentQuestionIndex];
       const allPlayers = Object.values(room.players);
+      const totalCount = allPlayers.length;
+      const finishedCount = allPlayers.filter((p) => p.isFinished).length;
       const awayCount = allPlayers.filter((p) => p.isTabActive === false).length;
       const warnedCount = allPlayers.filter((p) => (p.tabSwitchCount || 0) > 0).length;
+      const totalQuestions = room.quiz.questions.length || 1;
 
       return (
-        <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-between space-y-6">
-          <div className="w-full max-w-4xl flex flex-wrap items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800 gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-yellow-400 font-extrabold text-sm">
-                MÃ PHÒNG (PIN): {room.roomCode}
-              </span>
-              <span className="text-slate-600">|</span>
-              <span className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
-                👥 {allPlayers.length} HS
-              </span>
-              {awayCount > 0 && (
-                <span className="px-2.5 py-1 bg-rose-600/30 text-rose-300 border border-rose-500/50 rounded-xl text-xs font-black animate-pulse">
-                  🔴 {awayCount} HS rời tab
-                </span>
+        <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center space-y-6 font-sans">
+          {/* Top Control & Stats Header */}
+          <div className="w-full max-w-6xl bg-slate-900/90 backdrop-blur-xl p-5 rounded-3xl border-2 border-slate-800 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="px-4 py-2 bg-yellow-500/20 border border-yellow-500/40 rounded-2xl flex items-center gap-2">
+                <span className="text-xs font-bold text-yellow-300 uppercase">MÃ PHÒNG (PIN):</span>
+                <span className="text-2xl font-black text-yellow-400 tracking-wider">{room.roomCode}</span>
+              </div>
+
+              <div className="flex items-center gap-2 bg-slate-950 px-3.5 py-2 rounded-2xl border border-slate-800 text-xs font-bold text-slate-300">
+                <Users className="w-4 h-4 text-purple-400" />
+                <span>{totalCount} Học sinh đang làm</span>
+              </div>
+
+              {finishedCount > 0 && (
+                <div className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-500/40 px-3.5 py-2 rounded-2xl text-xs font-extrabold text-emerald-300">
+                  <span>✅ {finishedCount}/{totalCount} Đã hoàn thành</span>
+                </div>
               )}
+
+              {awayCount > 0 && (
+                <div className="flex items-center gap-1.5 bg-rose-600/30 border border-rose-500/50 px-3.5 py-2 rounded-2xl text-xs font-black text-rose-300 animate-pulse">
+                  <span>🔴 {awayCount} HS rời tab</span>
+                </div>
+              )}
+
               {warnedCount > 0 && (
-                <span className="px-2.5 py-1 bg-amber-500/20 text-yellow-300 border border-amber-500/40 rounded-xl text-xs font-bold">
-                  ⚠️ {warnedCount} HS có vi phạm
-                </span>
+                <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-500/40 px-3.5 py-2 rounded-2xl text-xs font-bold text-yellow-300">
+                  <span>⚠️ {warnedCount} HS có vi phạm</span>
+                </div>
               )}
             </div>
 
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowTeacherAlertModal(true)}
-                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-transform active:scale-95 cursor-pointer"
+                className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
                 <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo
               </button>
               <button
-                onClick={handleNextQuestion}
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-xl text-sm shadow-md"
+                onClick={() => {
+                  if (confirm('Bạn có chắc chắn muốn kết thúc bài thi cho tất cả học sinh không?')) {
+                    const updated = realtime.updatePhase(room.roomCode, 'FINISHED');
+                    if (updated) setRoom(updated);
+                  }
+                }}
+                className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs rounded-2xl shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
-                Bảng Xếp Hạng / Câu Tiếp ➔
+                🏁 KẾT THÚC BÀI THI
               </button>
             </div>
           </div>
 
-          {currentQ && (
-            <QuizCard
-              question={currentQ}
-              questionNumber={room.currentQuestionIndex + 1}
-              totalQuestions={room.quiz.questions.length}
-              onAnswerSubmit={() => {}}
-            />
-          )}
+          {/* Main Dashboard Layout: 2 Columns */}
+          <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Column 1 & 2 (2 cols wide): Live Student Progress Matrix */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="bg-slate-900/90 backdrop-blur-xl p-6 rounded-3xl border-2 border-slate-800 shadow-2xl">
+                <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+                  <h3 className="text-lg font-black text-white flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-yellow-400" />
+                    TIẾN ĐỘ BÀI THI CỦA HỌC SINH (REAL-TIME)
+                  </h3>
+                  <span className="text-xs text-slate-400 font-bold">
+                    Tự động xáo câu hỏi & đáp án per student
+                  </span>
+                </div>
+
+                {allPlayers.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500 font-medium">
+                    Chưa có học sinh nào trong phòng...
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1">
+                    {allPlayers.map((p) => {
+                      const currentIdx = p.currentQuestionIndex || 0;
+                      const progressPct = Math.min(100, Math.round((currentIdx / totalQuestions) * 100));
+                      const isAway = p.isTabActive === false;
+                      const hasSwitched = (p.tabSwitchCount || 0) > 0;
+
+                      return (
+                        <div
+                          key={p.id}
+                          className={`p-4 rounded-2xl border-2 transition-all flex flex-col justify-between space-y-3 ${
+                            p.isFinished
+                              ? 'bg-emerald-950/30 border-emerald-500/50'
+                              : isAway
+                              ? 'bg-rose-950/40 border-rose-500 animate-pulse'
+                              : 'bg-slate-950 border-slate-800 hover:border-purple-500/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <ChibiAvatar chibi={p.chibi} size="sm" />
+                              <div>
+                                <h4 className="font-extrabold text-sm text-white">{p.name}</h4>
+                                <div className="text-[11px] text-slate-400 font-medium">
+                                  {p.score.toLocaleString()} điểm | 🔥 Streak {p.streak}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Status Badge */}
+                            {p.isFinished ? (
+                              <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-xl text-[10px] font-black">
+                                ✅ Xong ({totalQuestions}/{totalQuestions})
+                              </span>
+                            ) : isAway ? (
+                              <span className="px-2.5 py-1 bg-rose-600 text-white rounded-xl text-[10px] font-black animate-bounce">
+                                🔴 RỜI TAB ({p.tabSwitchCount})
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/40 rounded-xl text-[10px] font-bold">
+                                Câu {currentIdx + 1}/{totalQuestions}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Progress bar */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                              <span>Tiến độ: {currentIdx}/{totalQuestions} câu</span>
+                              <span>{progressPct}%</span>
+                            </div>
+                            <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-500 rounded-full ${
+                                  p.isFinished
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                                    : isAway
+                                    ? 'bg-rose-500'
+                                    : 'bg-gradient-to-r from-purple-500 to-pink-500'
+                                }`}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Anti-cheat summary & alert button */}
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-900">
+                            {hasSwitched ? (
+                              <span className="text-[10px] font-bold text-yellow-400">
+                                ⚠️ Rời tab {p.tabSwitchCount} lần
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-slate-500">
+                                🟢 Tập trung 100%
+                              </span>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                setShowTeacherAlertModal(true);
+                              }}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-purple-600/40 text-purple-300 text-[10px] font-bold rounded-lg border border-slate-700 transition-colors"
+                            >
+                              📢 Nhắc HS
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 3: Real-Time Leaderboard & Arena Attacks Log */}
+            <div className="lg:col-span-1">
+              <LiveLeaderboard
+                players={room.players}
+                attacks={room.attacks}
+                isFinal={false}
+                isHost={true}
+                onOpenTeacherAlert={() => setShowTeacherAlertModal(true)}
+              />
+            </div>
+          </div>
 
           <TeacherAlertModal
             isOpen={showTeacherAlertModal}
