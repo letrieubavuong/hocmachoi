@@ -3,7 +3,7 @@ import { Question, Player } from '../types';
 import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
 import { getRankTier } from '../data/rankAssets';
-import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, Check, X, Send } from 'lucide-react';
+import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, Check, X, Send, Eye, Snowflake, Sparkles, Bomb } from 'lucide-react';
 
 interface QuizCardProps {
   question: Question;
@@ -43,6 +43,15 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   } | null>(null);
 
   const qType = question.type || 'MULTIPLE_CHOICE';
+
+  // 50:50 Oracle power-up: compute 2 wrong indices to hide
+  const disabled5050Indices = React.useMemo(() => {
+    if (!player?.oracle5050Active || qType !== 'MULTIPLE_CHOICE' || question.correctIndex === undefined) {
+      return [];
+    }
+    const wrong = [0, 1, 2, 3].filter((i) => i !== question.correctIndex);
+    return wrong.slice(0, 2);
+  }, [player?.oracle5050Active, question.id, question.correctIndex, qType]);
 
   useEffect(() => {
     setTimeSpent(0);
@@ -134,7 +143,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     }
 
     const basePoints = question.points || 100;
-    const multiplier = player && player.streak >= 2 ? 1.5 : 1;
+    let multiplier = player && player.streak >= 2 ? 1.5 : 1;
+    if (player?.doublePointsActive) {
+      multiplier *= 2;
+    }
     const totalEarned = isCorrect ? Math.round((basePoints + speedBonus) * multiplier) : 0;
 
     if (isCorrect) {
@@ -221,8 +233,48 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         />
       </div>
 
+      {/* Active Power-Up Badges Ribbon */}
+      {(player?.doublePointsActive || player?.oracle5050Active || player?.reflectShieldActive || player?.isBombed) && (
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {player?.doublePointsActive && (
+            <div className="px-3.5 py-1.5 bg-amber-500/20 border border-amber-500/50 text-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md animate-bounce">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span>⚡ THẺ NHÂN 2 ĐIỂM SỐ ĐANG KÍCH HOẠT (X2 PT CÂU NÀY)!</span>
+            </div>
+          )}
+          {player?.oracle5050Active && qType === 'MULTIPLE_CHOICE' && (
+            <div className="px-3.5 py-1.5 bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md animate-pulse">
+              <Eye className="w-4 h-4 text-cyan-300" />
+              <span>👁️ MẮT THẦN 50:50 ĐÃ HỖ TRỢ LOẠI BỎ 2 ĐÁP ÁN SAI!</span>
+            </div>
+          )}
+          {player?.reflectShieldActive && (
+            <div className="px-3.5 py-1.5 bg-purple-500/20 border border-purple-500/50 text-purple-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+              <Sparkles className="w-4 h-4 text-purple-300" />
+              <span>👑 KHIÊN PHẢN ĐÒN ĐANG BẢO VỆ BẠN!</span>
+            </div>
+          )}
+          {player?.isBombed && (
+            <div className="px-3.5 py-1.5 bg-orange-500/20 border border-orange-500/50 text-orange-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md animate-pulse">
+              <Bomb className="w-4 h-4 text-orange-400" />
+              <span>💣 BẠN ĐÃ BỊ ĐÍNH BOM HẸN GIỜ!</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Question Body */}
       <div className="bg-slate-800/90 backdrop-blur-xl p-8 rounded-3xl border-2 border-purple-500/30 shadow-2xl text-center relative overflow-hidden space-y-6">
+        {/* Freeze Effect Overlay */}
+        {player?.isFrozen && (
+          <div className="absolute inset-0 z-40 bg-cyan-950/95 backdrop-blur-md rounded-3xl border-4 border-cyan-400 flex flex-col items-center justify-center p-6 text-center space-y-3 animate-fade-in">
+            <Snowflake className="w-16 h-16 text-cyan-300 animate-spin" />
+            <h3 className="text-2xl font-black text-white">❄️ MÀN HÌNH BỊ ĐÓNG BẰNG 6 GIÂY!</h3>
+            <p className="text-xs text-cyan-200 max-w-md font-semibold">
+              Bạn vừa bị đối thủ sử dụng Thẻ Đóng Băng. Hãy kiên nhẫn đợi tan băng để tiếp tục chọn đáp án!
+            </p>
+          </div>
+        )}
         <h2 className="text-2xl md:text-3xl font-black text-white leading-relaxed">
           <MathRenderer text={question.questionText} />
         </h2>
@@ -233,9 +285,12 @@ export const QuizCard: React.FC<QuizCardProps> = ({
             {question.options.map((option, idx) => {
               const isSelected = selectedOption === idx;
               const isCorrectOption = idx === question.correctIndex;
+              const isDisabledBy5050 = disabled5050Indices.includes(idx);
               let cardStateStyle = optionColors[idx % optionColors.length];
 
-              if (isAnswered) {
+              if (isDisabledBy5050) {
+                cardStateStyle = 'from-slate-900 to-slate-950 opacity-20 border-slate-800 pointer-events-none line-through';
+              } else if (isAnswered) {
                 if (isCorrectOption) {
                   cardStateStyle = 'from-emerald-500 to-green-600 border-emerald-300 ring-4 ring-emerald-400/50 scale-102';
                 } else if (isSelected && !isCorrectOption) {
@@ -248,7 +303,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
               return (
                 <button
                   key={idx}
-                  disabled={isAnswered}
+                  disabled={isAnswered || isDisabledBy5050 || player?.isFrozen}
                   onClick={() => handleSelectMC(idx)}
                   className={`relative flex items-center p-5 rounded-2xl bg-gradient-to-r ${cardStateStyle} border-2 text-white font-extrabold text-left transition-all duration-200 shadow-xl active:scale-95 cursor-pointer disabled:cursor-default`}
                 >

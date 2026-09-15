@@ -230,6 +230,11 @@ export class RealtimeService {
       doublePointsActive = false;
     }
 
+    // Reset single-use powerups after question attempt
+    let oracle5050Active = false;
+    let isFrozen = false;
+    let isBombed = false;
+
     const updatedPlayer: Player = {
       ...player,
       score: Math.max(0, player.score + finalDeltaScore),
@@ -237,6 +242,9 @@ export class RealtimeService {
       shieldActive: newShieldActive,
       shieldCount: newShieldCount,
       doublePointsActive,
+      oracle5050Active,
+      isFrozen,
+      isBombed,
       unlockedPowerUp,
     };
 
