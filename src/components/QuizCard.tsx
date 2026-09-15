@@ -11,6 +11,7 @@ interface QuizCardProps {
   totalQuestions: number;
   player?: Player;
   onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => void;
+  onAutoNext?: () => void;
 }
 
 export const QuizCard: React.FC<QuizCardProps> = ({
@@ -19,6 +20,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   totalQuestions,
   player,
   onAnswerSubmit,
+  onAutoNext,
 }) => {
   const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -61,6 +63,14 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return () => clearInterval(timer);
   }, [isAnswered]);
 
+  const triggerAutoNext = () => {
+    if (onAutoNext) {
+      setTimeout(() => {
+        onAutoNext();
+      }, 1500);
+    }
+  };
+
   // Submit Multiple Choice Answer
   const handleSelectMC = (index: number) => {
     if (isAnswered) return;
@@ -69,6 +79,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
     const isCorrect = index === question.correctIndex;
     evaluateAndSubmit(isCorrect, index);
+    triggerAutoNext();
   };
 
   // Submit True / False (ChoiceTF) Answer
@@ -91,6 +102,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
     const isCorrect = correctCount === question.options.length;
     evaluateAndSubmit(isCorrect, 0);
+    triggerAutoNext();
   };
 
   // Submit Short Answer (\shortans)
@@ -104,6 +116,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     const isCorrect = userClean === targetClean || (parseFloat(userClean) === parseFloat(targetClean));
 
     evaluateAndSubmit(isCorrect, 0);
+    triggerAutoNext();
   };
 
   const evaluateAndSubmit = (isCorrect: boolean, selectedIdx: number) => {
@@ -393,12 +406,23 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                   +{lastEarnedScore.total} Điểm!
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 block pt-1">🟢 Đã ghi nhận đáp án! Đang chờ Giáo viên duyệt / chuyển câu tiếp theo...</span>
+              <span className="text-[11px] text-slate-400 block pt-1">⚡ Tự động chuyển câu tiếp theo sau 1.5s...</span>
             </div>
           ) : (
             <div className="space-y-1">
               <span className="text-lg block">❌ CHƯA CHÍNH XÁC!</span>
-              <span className="text-[11px] text-slate-400 block">🟢 Đã ghi nhận đáp án! Đang chờ Giáo viên duyệt / chuyển câu tiếp theo...</span>
+              <span className="text-[11px] text-slate-400 block">⚡ Tự động chuyển câu tiếp theo sau 1.5s...</span>
+            </div>
+          )}
+
+          {onAutoNext && (
+            <div className="pt-2">
+              <button
+                onClick={() => onAutoNext()}
+                className="px-6 py-2.5 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-sm rounded-xl shadow-lg transition-transform active:scale-95 cursor-pointer"
+              >
+                CÂU TIẾP THEO ➔
+              </button>
             </div>
           )}
 

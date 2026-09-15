@@ -506,6 +506,7 @@ export function App() {
             totalQuestions={room.quiz.questions.length || 1}
             player={player}
             onAnswerSubmit={handleAnswerSubmit}
+            onAutoNext={handleNextQuestion}
           />
 
           <BattleActionModal
