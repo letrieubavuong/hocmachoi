@@ -620,6 +620,9 @@ export class RealtimeService {
         updatedTarget.freezeUntil = Date.now() + 10000;
       } else if (powerUpType === 'BOMB') {
         updatedTarget.isBombed = true;
+      } else if (powerUpType === 'SHIELD') {
+        updatedAttacker.shieldActive = true;
+        updatedAttacker.shieldCount = (attacker.shieldCount || 0) + 1;
       } else if (powerUpType === 'DOUBLE_POINTS') {
         updatedAttacker.doublePointsActive = true;
       } else if (powerUpType === 'MYSTERY_BOX') {
@@ -651,7 +654,7 @@ export class RealtimeService {
     const updatedPlayers = {
       ...room.players,
       [attackerId]: updatedAttacker,
-      [targetId]: updatedTarget,
+      ...(targetId !== attackerId ? { [targetId]: updatedTarget } : {}),
     };
 
     const updatedRoom: GameRoom = {
