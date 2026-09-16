@@ -19,10 +19,13 @@ import { StudentAlertModal } from './components/StudentAlertModal';
 import { TeacherGiftModal } from './components/TeacherGiftModal';
 import { TeacherInquiryModal } from './components/TeacherInquiryModal';
 import { TeacherAuthPanel } from './components/TeacherAuthPanel';
+import { StudentShopModal } from './components/StudentShopModal';
 
 import { getRankTier } from './data/rankAssets';
 import { shuffleStudentQuestions } from './utils/shuffle';
 import { calculateAnswerScore } from './utils/scoring';
+import { calculateCoinReward } from './services/coinEngine';
+import { StudentWalletService } from './services/studentWalletService';
 
 import {
   Sparkles,
@@ -43,6 +46,7 @@ import {
   LogOut,
   UserCheck,
   UserX,
+  ShoppingBag,
 } from 'lucide-react';
 
 const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
@@ -96,6 +100,7 @@ export function App() {
 
   // Kicked by Teacher modal state
   const [showKickedModal, setShowKickedModal] = useState(false);
+  const [showShopModal, setShowShopModal] = useState(false);
 
   // Student: Anti-Cheat Tab Switch & Window Focus Monitor
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -337,9 +342,9 @@ export function App() {
     if (updatedRoom) setRoom(updatedRoom);
   };
 
-  // Student: Submit Answer
+  // Student: Submit Answer (Updates both Live Match Score & Persistent Student Wallet Coins)
   const handleAnswerSubmit = (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => {
-    if (!room || !player) return;
+    if (!room || !player) return { scoreEarned: 0, coinsEarned: 0 };
 
     // Anti-Guessing ("Lô tô đáp án") Check: If student answers under 2 seconds, trigger 10s freeze!
     if (timeSpentSec < 2) {
@@ -362,8 +367,23 @@ export function App() {
       scoreToAdd = scoreResult.totalEarned;
     }
 
-    const updatedRoom = realtime.updatePlayerStats(room.roomCode, player.id, scoreToAdd, isCorrect);
+    const updatedRoom = realtime.updatePlayerStats(room.roomCode, player.id, scoreToAdd, isCorrect, timeSpentSec);
     if (updatedRoom) setRoom(updatedRoom);
+
+    // Calculate & Credit Coin Economy (Persistent Student Wallet)
+    const wallet = StudentWalletService.getWallet(player.id, player.name);
+    const equipBonus = StudentWalletService.getEquippedCoinBonusPercent(wallet);
+    const coinReward = calculateCoinReward({
+      isCorrect,
+      timeSpentSec,
+      streak: player.streak,
+      equipmentCoinBonusPercent: equipBonus,
+    });
+
+    const transactionKey = `${room.roomCode}_q${currentQ?.id || player.currentQuestionIndex || 0}_${player.id}`;
+    StudentWalletService.creditCoins(player.id, player.name, transactionKey, coinReward);
+
+    return { scoreEarned: scoreToAdd, coinsEarned: coinReward.totalCoins };
   };
 
   // Student: Send Question Inquiry to Teacher
@@ -727,6 +747,7 @@ export function App() {
         const totalCount = questionsList.length;
         const correctCount = player.correctCount || 0;
         const accuracyPct = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+        const studentWallet = StudentWalletService.getWallet(player.id, player.name);
 
         return (
           <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
@@ -747,20 +768,33 @@ export function App() {
                 Bạn đã trả lời hết tất cả câu hỏi. Dưới đây là kết quả của bạn và Bảng Xếp Hạng trực tiếp!
               </p>
 
-              <div className="grid grid-cols-3 gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <div className="p-3 text-center">
-                  <div className="text-xs text-slate-400 font-bold uppercase">Tổng Điểm</div>
-                  <div className="text-2xl font-black text-yellow-400 mt-1">{player.score.toLocaleString()}</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="p-2.5 text-center">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">Điểm Trận Đấu</div>
+                  <div className="text-xl font-black text-yellow-400 mt-1">{player.score.toLocaleString()}</div>
                 </div>
-                <div className="p-3 text-center border-x border-slate-800">
-                  <div className="text-xs text-slate-400 font-bold uppercase">Đúng / Tổng</div>
-                  <div className="text-2xl font-black text-emerald-400 mt-1">{correctCount} / {totalCount}</div>
+                <div className="p-2.5 text-center border-l border-slate-800">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">Đúng / Tổng</div>
+                  <div className="text-xl font-black text-emerald-400 mt-1">{correctCount} / {totalCount}</div>
                 </div>
-                <div className="p-3 text-center">
-                  <div className="text-xs text-slate-400 font-bold uppercase">Tỷ Lệ Đúng</div>
-                  <div className="text-2xl font-black text-cyan-400 mt-1">{accuracyPct}%</div>
+                <div className="p-2.5 text-center border-l border-slate-800">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">Tỷ Lệ Đúng</div>
+                  <div className="text-xl font-black text-cyan-400 mt-1">{accuracyPct}%</div>
+                </div>
+                <div className="p-2.5 text-center border-l border-slate-800">
+                  <div className="text-[10px] text-amber-400 font-bold uppercase">Ví Xu Lâu Dài</div>
+                  <div className="text-xl font-black text-yellow-300 mt-1 font-mono">🪙 {studentWallet.coins.toLocaleString()}</div>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setShowShopModal(true)}
+                className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black rounded-2xl shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer text-sm"
+              >
+                <ShoppingBag className="w-5 h-5 text-slate-950 shrink-0" />
+                <span>MỞ CỬA HÀNG TRANG BỊ & NÂNG CẤP (VÍ XU: 🪙 {studentWallet.coins.toLocaleString()})</span>
+              </button>
             </div>
 
             <div className="w-full max-w-4xl">
@@ -1288,6 +1322,15 @@ export function App() {
             </button>
           </div>
         </div>
+      )}
+      {/* Student Shop & Equipment Modal */}
+      {player && (
+        <StudentShopModal
+          isOpen={showShopModal}
+          studentId={player.id}
+          studentName={player.name}
+          onClose={() => setShowShopModal(false)}
+        />
       )}
     </>
   );

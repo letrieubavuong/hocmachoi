@@ -14,7 +14,7 @@ interface QuizCardProps {
   questionNumber: number;
   totalQuestions: number;
   player?: Player;
-  onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => void;
+  onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => { scoreEarned?: number; coinsEarned?: number } | void;
   onAutoNext?: () => void;
   onUnfreeze?: () => void;
   onSendInquiry?: (questionNumber: number, question: Question) => void;
@@ -40,6 +40,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const [tfUserSelections, setTfUserSelections] = useState<Record<number, boolean>>({});
   const [shortInput, setShortInput] = useState('');
   const [lastEarnedScore, setLastEarnedScore] = useState<ScoreResult | null>(null);
+  const [lastEarnedCoins, setLastEarnedCoins] = useState<number | null>(null);
 
   // Refs for precise timing & double-submit locks
   const startTimeRef = useRef<number>(performance.now());
@@ -188,9 +189,16 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     } else {
       soundManager.playWrong();
       setLastEarnedScore(null);
+      setLastEarnedCoins(null);
     }
 
-    onAnswerSubmit(selectedIdx, isCorrect, elapsedSecs);
+    const res = onAnswerSubmit(selectedIdx, isCorrect, elapsedSecs);
+    if (res && typeof res.coinsEarned === 'number') {
+      setLastEarnedCoins(res.coinsEarned);
+    } else {
+      setLastEarnedCoins(null);
+    }
+
     triggerAutoNext();
   };
 
@@ -573,6 +581,11 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                 <span className="text-sm font-black text-yellow-400 bg-yellow-500/20 px-2 py-0.5 rounded-lg border border-yellow-400/50">
                   +{lastEarnedScore.totalEarned} Điểm!
                 </span>
+                {typeof lastEarnedCoins === 'number' && lastEarnedCoins > 0 && (
+                  <span className="text-sm font-black text-yellow-300 bg-amber-500/20 px-2.5 py-0.5 rounded-lg border border-amber-400/50 flex items-center gap-1 shadow-sm">
+                    🪙 +{lastEarnedCoins} Xu
+                  </span>
+                )}
               </div>
             </div>
           ) : (
