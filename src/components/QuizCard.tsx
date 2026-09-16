@@ -239,16 +239,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   // Toggle True/False Selection
   const handleToggleTF = (stmtIdx: number, val: boolean) => {
     if (isAnswered || player?.isFrozen || submitLockRef.current) return;
-    const nextSelections = { ...tfUserSelections, [stmtIdx]: val };
-    setTfUserSelections(nextSelections);
-
-    // AUTO-SUBMIT: When student has selected True/False for all statements in this question!
-    const totalCount = question.options?.length || 4;
-    const answeredCount = question.options.filter((_, idx) => typeof nextSelections[idx] === 'boolean').length;
-
-    if (answeredCount === totalCount && !isAnswered && !submitLockRef.current && isQuestionDataValid) {
-      submitTFAnswers(nextSelections);
-    }
+    setTfUserSelections((prev) => ({ ...prev, [stmtIdx]: val }));
   };
 
   // Submit True / False Answer (Manual button click)

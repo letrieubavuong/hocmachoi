@@ -396,13 +396,6 @@ export class RealtimeService {
     this.saveAndBroadcast(updatedRoom);
     this.broadcastToPeerClients(updatedRoom);
 
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'ADVANCE_QUESTION',
-        playerId,
-      });
-    }
-
     return updatedRoom;
   }
 
