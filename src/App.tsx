@@ -464,10 +464,6 @@ export function App() {
       );
     }
 
-    setShowPowerUpModal(false);
-    if (room && player) {
-      realtime.clearPlayerPowerUp(room.roomCode, player.id);
-    }
     return result;
   };
 
@@ -922,7 +918,7 @@ export function App() {
           <BattleActionModal
             attacker={player}
             opponents={opponents}
-            isOpen={showPowerUpModal && !!player?.unlockedPowerUp}
+            isOpen={showPowerUpModal}
             powerUpType={player.unlockedPowerUp}
             battleSessionState={room.battleSessionState}
             onExecutePowerUp={handleExecutePowerUp}

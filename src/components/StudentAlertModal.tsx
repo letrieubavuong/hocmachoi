@@ -125,21 +125,42 @@ const playNotificationSound = (kind: 'GIFT' | 'ALERT', alertType?: TeacherAlertE
   }
 };
 
+const DISMISSED_STORAGE_KEY = 'dismissed_student_notifications_v1';
+
+const getDismissedIdsFromStorage = (): Set<string> => {
+  try {
+    const raw = sessionStorage.getItem(DISMISSED_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+};
+
+const markNotificationDismissedInStorage = (id: string) => {
+  try {
+    const set = getDismissedIdsFromStorage();
+    set.add(id);
+    const items = Array.from(set).slice(-100);
+    sessionStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(items));
+  } catch {}
+};
+
 export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
   alertEvent,
   giftEvent,
   currentPlayerId,
 }) => {
   const [queue, setQueue] = useState<StudentNotification[]>([]);
-  const processedIdsRef = useRef<Set<string>>(new Set());
+  const processedIdsRef = useRef<Set<string>>(getDismissedIdsFromStorage());
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Sync props to internal notification queue safely
   useEffect(() => {
     const newNotifications: StudentNotification[] = [];
+    const dismissedIds = getDismissedIdsFromStorage();
 
     if (alertEvent && isEventForPlayer(alertEvent.targetId, currentPlayerId)) {
-      if (!processedIdsRef.current.has(alertEvent.id)) {
+      if (!processedIdsRef.current.has(alertEvent.id) && !dismissedIds.has(alertEvent.id)) {
         processedIdsRef.current.add(alertEvent.id);
         newNotifications.push({
           id: alertEvent.id,
@@ -152,7 +173,7 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
     }
 
     if (giftEvent && isEventForPlayer(giftEvent.targetId, currentPlayerId)) {
-      if (!processedIdsRef.current.has(giftEvent.id)) {
+      if (!processedIdsRef.current.has(giftEvent.id) && !dismissedIds.has(giftEvent.id)) {
         processedIdsRef.current.add(giftEvent.id);
         newNotifications.push({
           id: giftEvent.id,
@@ -166,11 +187,6 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
 
     if (newNotifications.length > 0) {
       setQueue((prev) => [...prev, ...newNotifications]);
-    }
-
-    // Keep processed memory clean if it exceeds 200 items
-    if (processedIdsRef.current.size > 200) {
-      processedIdsRef.current.clear();
     }
   }, [alertEvent, giftEvent, currentPlayerId]);
 
@@ -190,6 +206,11 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
   const totalInQueue = queue.length;
 
   const handleDismissCurrent = () => {
+    if (queue.length > 0) {
+      const currentId = queue[0].id;
+      markNotificationDismissedInStorage(currentId);
+      processedIdsRef.current.add(currentId);
+    }
     setQueue((prev) => prev.slice(1));
   };
 

@@ -149,11 +149,11 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
           });
           setStep('RESULT');
 
-          // Schedule auto-continue timer (1000ms UX delay)
+          // Schedule auto-continue timer (2000ms UX delay to read reward result)
           if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
           autoCloseTimerRef.current = setTimeout(() => {
             finishRewardFlow();
-          }, 1000);
+          }, 2000);
         } else {
           finishRewardFlow();
         }

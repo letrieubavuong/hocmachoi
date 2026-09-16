@@ -70,10 +70,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     } else if (qType === 'TRUE_FALSE') {
       return (
         Array.isArray(question.options) &&
-        question.options.length === 4 &&
-        Array.isArray(question.tfAnswers) &&
-        question.tfAnswers.length === 4 &&
-        question.tfAnswers.every((val) => typeof val === 'boolean')
+        question.options.length >= 1
       );
     } else if (qType === 'SHORT_ANSWER') {
       return typeof question.shortAnswerText === 'string' && question.shortAnswerText.trim().length > 0;
@@ -217,29 +214,46 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     processSubmission(isCorrect, index);
   };
 
-  // Toggle True/False Selection
-  const handleToggleTF = (stmtIdx: number, val: boolean) => {
-    if (isAnswered || player?.isFrozen || submitLockRef.current) return;
-    setTfUserSelections((prev) => ({ ...prev, [stmtIdx]: val }));
-  };
-
-  // Submit True / False Answer
-  const handleSubmitTF = () => {
+  const submitTFAnswers = (selectionsToUse: Record<number, boolean>) => {
     if (isAnswered || player?.isFrozen || submitLockRef.current || !isQuestionDataValid) return;
-    if (!question.tfAnswers || question.tfAnswers.length !== 4) return;
 
     submitLockRef.current = true;
     setIsAnswered(true);
 
+    const targetTF =
+      Array.isArray(question.tfAnswers) && question.tfAnswers.length === question.options.length
+        ? question.tfAnswers
+        : question.options.map(() => true);
+
     let correctCount = 0;
     question.options.forEach((_, idx) => {
-      if (tfUserSelections[idx] === question.tfAnswers![idx]) {
+      if (selectionsToUse[idx] === targetTF[idx]) {
         correctCount++;
       }
     });
 
     const isCorrect = correctCount === question.options.length;
     processSubmission(isCorrect, 0);
+  };
+
+  // Toggle True/False Selection
+  const handleToggleTF = (stmtIdx: number, val: boolean) => {
+    if (isAnswered || player?.isFrozen || submitLockRef.current) return;
+    const nextSelections = { ...tfUserSelections, [stmtIdx]: val };
+    setTfUserSelections(nextSelections);
+
+    // AUTO-SUBMIT: When student has selected True/False for all statements in this question!
+    const totalCount = question.options?.length || 4;
+    const answeredCount = question.options.filter((_, idx) => typeof nextSelections[idx] === 'boolean').length;
+
+    if (answeredCount === totalCount && !isAnswered && !submitLockRef.current && isQuestionDataValid) {
+      submitTFAnswers(nextSelections);
+    }
+  };
+
+  // Submit True / False Answer (Manual button click)
+  const handleSubmitTF = () => {
+    submitTFAnswers(tfUserSelections);
   };
 
   // Submit Short Answer
