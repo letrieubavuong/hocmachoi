@@ -9,11 +9,14 @@ import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Send, Eye, Snowflake,
 
 const AUTO_NEXT_DELAY_MS = 1500;
 
+import { BattleSessionState } from '../types';
+
 interface QuizCardProps {
   question: Question;
   questionNumber: number;
   totalQuestions: number;
   player?: Player;
+  battleSessionState?: BattleSessionState;
   onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => { scoreEarned?: number; coinsEarned?: number } | void;
   onAutoNext?: () => void;
   onUnfreeze?: () => void;
@@ -25,6 +28,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   questionNumber,
   totalQuestions,
   player,
+  battleSessionState,
   onAnswerSubmit,
   onAutoNext,
   onUnfreeze,
@@ -344,6 +348,9 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           style={{ width: `${progressPct}%` }}
         />
       </div>
+
+      {/* Controlled Battle Phase Status Ribbon */}
+      <ControlledBattleBanner battleSessionState={battleSessionState} />
 
       {/* Active Power-Up Ribbon */}
       <PowerUpRibbon player={player} qType={qType} />
@@ -707,5 +714,48 @@ const PowerUpRibbon: React.FC<{ player?: Player; qType: string }> = React.memo((
     </div>
   );
 });
+
+/* Controlled Battle Status Banner */
+const ControlledBattleBanner: React.FC<{ battleSessionState?: BattleSessionState }> = ({
+  battleSessionState,
+}) => {
+  if (!battleSessionState) return null;
+
+  if (battleSessionState.focusModeActive) {
+    return (
+      <div className="w-full py-2 px-4 rounded-xl bg-amber-950/90 border border-amber-500/50 text-amber-200 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg animate-fade-in">
+        <span>📚 CHẾ ĐỘ TẬP TRUNG: Giáo viên đã khóa lượt tấn công PvP. Tập trung làm bài!</span>
+      </div>
+    );
+  }
+
+  if (battleSessionState.currentPhase === 'BATTLE') {
+    const endTs = battleSessionState.battleEndTimestamp || Date.now() + 10000;
+    const remainingSec = Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
+
+    return (
+      <div className="w-full py-2 px-4 rounded-xl bg-gradient-to-r from-red-600 via-amber-600 to-rose-600 text-white font-black text-xs sm:text-sm flex items-center justify-between gap-2 shadow-lg animate-pulse border border-amber-300/50">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-yellow-300" />
+          <span>⚔️ BATTLE TIME ĐANG MỞ!</span>
+        </div>
+        <span className="bg-black/30 px-3 py-0.5 rounded-lg text-yellow-300 font-mono text-sm border border-yellow-300/30">
+          ⏱️ {remainingSec}s
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full py-1.5 px-4 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-400 font-bold text-xs flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <span>📚 CHẾ ĐỘ LÀM BÀI</span>
+      </div>
+      <span className="text-[11px] text-slate-400 font-medium">
+        (Battle Time tiếp theo sau {battleSessionState.questionsUntilBattle || 5} câu)
+      </span>
+    </div>
+  );
+};
 
 PowerUpRibbon.displayName = 'PowerUpRibbon';

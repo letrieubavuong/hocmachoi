@@ -48,6 +48,24 @@ export interface Quiz {
 }
 
 export type GamePhase = 'LOBBY' | 'QUESTION' | 'RESULT' | 'ATTACK' | 'LEADERBOARD' | 'FINISHED';
+export type BattleMode = 'DISABLED' | 'ROUND' | 'PER_QUESTION' | 'RANDOM_TARGET_ONLY';
+export type StudentTargetMode = 'MANUAL' | 'RANDOM';
+export type BattlePhase = 'QUIZ' | 'BATTLE' | 'PAUSED';
+
+export interface BattleSessionState {
+  battleEnabled: boolean;
+  focusModeActive: boolean;
+  battleMode: BattleMode;
+  studentTargetMode: StudentTargetMode;
+  currentPhase: BattlePhase;
+  questionsUntilBattle: number;
+  battleEndTimestamp: number;
+  currentRoundId: number;
+  attackerLogThisRound: Record<string, boolean>;
+  receivedAttackCountThisRound: Record<string, number>;
+  protectedPlayers: Record<string, number>;
+  lastTargetHistory: Record<string, string>;
+}
 
 export interface Player {
   id: string;
@@ -70,6 +88,9 @@ export interface Player {
   isBombed?: boolean;
   unlockedPowerUp?: PowerUpType | null;
   processedEventIds?: string[];
+  protectedUntilRound?: number;
+  lastTargetId?: string;
+  battleAttacksUsedThisRound?: number;
   lastAttackNotice?: {
     attackerName: string;
     blocked: boolean;
@@ -131,6 +152,7 @@ export interface GameRoom {
   questionStartTime: number;
   players: Record<string, Player>;
   attacks: AttackEvent[];
+  battleSessionState?: BattleSessionState;
   latestTeacherAlert?: TeacherAlertEvent;
   latestTeacherGift?: TeacherGiftEvent;
   updatedAt: number;

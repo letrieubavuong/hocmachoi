@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Player, PowerUpType } from '../types';
+import { Player, PowerUpType, BattleSessionState } from '../types';
 import { ChibiAvatar } from './ChibiAvatar';
 import {
   Swords,
@@ -14,10 +14,13 @@ import {
   Sparkles,
   ChevronRight,
   ArrowLeft,
+  Lock,
+  Flame,
 } from 'lucide-react';
 import { soundManager } from '../services/audio';
 
 import { POWER_UP_CONFIG, TargetMode, PowerUpDefinition as PowerUpMeta } from '../services/powerUpEngine';
+import { BattleEngine } from '../services/battleEngine';
 export { POWER_UP_CONFIG };
 export type { TargetMode, PowerUpMeta };
 
@@ -38,6 +41,7 @@ interface BattleActionModalProps {
   opponents: Player[];
   isOpen: boolean;
   powerUpType?: PowerUpType | null;
+  battleSessionState?: BattleSessionState;
   onExecutePowerUp: (targetId: string, powerUpType: PowerUpType) => {
     success: boolean;
     blocked: boolean;
@@ -53,6 +57,7 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   opponents,
   isOpen,
   powerUpType,
+  battleSessionState,
   onExecutePowerUp,
   onClose,
   onNextQuestion,
@@ -63,10 +68,25 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [battleResult, setBattleResult] = useState<BattleResultData | null>(null);
 
-  const validTargets = useMemo(
-    () => opponents.filter((p) => p.id !== attacker.id),
-    [opponents, attacker.id]
-  );
+  // Auto-close if Focus Mode is activated by teacher
+  useEffect(() => {
+    if (isOpen && battleSessionState) {
+      if (battleSessionState.focusModeActive) {
+        onClose();
+      }
+    }
+  }, [isOpen, battleSessionState, onClose]);
+
+  const validTargets = useMemo(() => {
+    if (!battleSessionState) {
+      return opponents.filter((p) => p.id !== attacker.id);
+    }
+    return BattleEngine.getValidTargets({
+      attackerId: attacker.id,
+      opponents,
+      sessionState: battleSessionState,
+    });
+  }, [opponents, attacker.id, battleSessionState]);
 
   useEffect(() => {
     if (isOpen) {

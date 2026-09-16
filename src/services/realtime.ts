@@ -1,4 +1,4 @@
-import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent } from '../types';
+import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent, BattleSessionState } from '../types';
 import { PowerUpEngine } from './powerUpEngine';
 import Peer, { DataConnection } from 'peerjs';
 
@@ -648,30 +648,50 @@ export class RealtimeService {
       timestamp: Date.now(),
     };
 
+    const updatedPlayers = {
+      ...room.players,
+      [attackerId]: updatedAttacker,
+      [targetId]: updatedTarget,
+    };
+
     const updatedRoom: GameRoom = {
       ...room,
-      players: {
-        ...room.players,
-        [attackerId]: updatedAttacker,
-        ...(target.id !== attackerId ? { [target.id]: updatedTarget } : {}),
-      },
-      attacks: [attackEvent, ...room.attacks.slice(0, 15)],
+      players: updatedPlayers,
+      attacks: [attackEvent, ...room.attacks],
       updatedAt: Date.now(),
     };
 
     this.saveAndBroadcast(updatedRoom);
     this.broadcastToPeerClients(updatedRoom);
 
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'EXECUTE_ATTACK',
-        attackerId,
-        targetId,
-        powerUpType,
-      });
-    }
+    return {
+      success: true,
+      blocked,
+      stolenPoints,
+      mysteryBonus,
+    };
+  }
 
-    return { success: true, blocked, stolenPoints, mysteryBonus };
+  // Teacher / Engine: Update Battle Session State & Broadcast
+  public updateBattleSessionState(
+    roomCode: string,
+    stateUpdater: BattleSessionState | ((prev?: BattleSessionState) => BattleSessionState)
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    const nextState =
+      typeof stateUpdater === 'function' ? stateUpdater(room.battleSessionState) : stateUpdater;
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      battleSessionState: nextState,
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
   }
 
   // Teacher: Remove / Kick player from room

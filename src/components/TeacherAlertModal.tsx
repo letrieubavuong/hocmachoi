@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Player } from '../types';
+import { Player, BattleSessionState, BattleMode } from '../types';
 import {
   Megaphone,
   X,
@@ -10,6 +10,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Users,
+  Swords,
+  Shield,
+  Lock,
+  Radio,
 } from 'lucide-react';
 import { realtime } from '../services/realtime';
 import { soundManager } from '../services/audio';
@@ -76,6 +80,7 @@ interface TeacherAlertModalProps {
   roomCode: string;
   players: Record<string, Player>;
   initialTargetId?: string;
+  battleSessionState?: BattleSessionState;
 }
 
 export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
@@ -84,6 +89,7 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
   roomCode,
   players,
   initialTargetId = ALL_TARGET,
+  battleSessionState,
 }) => {
   const [selectedTarget, setSelectedTarget] = useState<string>(initialTargetId);
   const [customMessage, setCustomMessage] = useState('');
@@ -97,6 +103,70 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
   const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const playersList = useMemo(() => Object.values(players), [players]);
+
+  const handleToggleFocusMode = useCallback(() => {
+    if (!roomCode) return;
+    const isFocusActive = !!battleSessionState?.focusModeActive;
+    const newFocusState = !isFocusActive;
+
+    realtime.updateBattleSessionState(roomCode, (prev?: BattleSessionState) => ({
+      ...(prev || {
+        battleEnabled: true,
+        focusModeActive: false,
+        battleMode: 'ROUND',
+        studentTargetMode: 'RANDOM',
+        currentPhase: 'QUIZ',
+        questionsUntilBattle: 5,
+        battleEndTimestamp: 0,
+        currentRoundId: 1,
+        attackerLogThisRound: {},
+        receivedAttackCountThisRound: {},
+        protectedPlayers: {},
+        lastTargetHistory: {},
+      }),
+      focusModeActive: newFocusState,
+      currentPhase: newFocusState ? 'PAUSED' : 'QUIZ',
+    }));
+
+    if (newFocusState) {
+      realtime.sendTeacherAlert(
+        roomCode,
+        'ALL',
+        '📚 Giáo viên đã bật Chế độ Tập trung. Tất cả lượt tấn công đã bị khóa!',
+        'FOCUS'
+      );
+      setSentNotice('🔒 Đã bật Chế độ Tập trung & Khóa toàn bộ Battle!');
+    } else {
+      setSentNotice('🟢 Đã mở lại Chế độ Trận đấu!');
+    }
+  }, [roomCode, battleSessionState]);
+
+  const handleChangeBattleMode = useCallback(
+    (newMode: BattleMode) => {
+      if (!roomCode) return;
+      realtime.updateBattleSessionState(roomCode, (prev?: BattleSessionState) => ({
+        ...(prev || {
+          battleEnabled: true,
+          focusModeActive: false,
+          battleMode: 'ROUND',
+          studentTargetMode: 'RANDOM',
+          currentPhase: 'QUIZ',
+          questionsUntilBattle: 5,
+          battleEndTimestamp: 0,
+          currentRoundId: 1,
+          attackerLogThisRound: {},
+          receivedAttackCountThisRound: {},
+          protectedPlayers: {},
+          lastTargetHistory: {},
+        }),
+        battleMode: newMode,
+        battleEnabled: newMode !== 'DISABLED',
+        studentTargetMode: newMode === 'RANDOM_TARGET_ONLY' ? 'RANDOM' : (prev?.studentTargetMode || 'RANDOM'),
+      }));
+      setSentNotice(`⚙️ Đã cập nhật chế độ Battle: ${newMode}`);
+    },
+    [roomCode]
+  );
 
   // Reset state on modal open or initialTargetId change
   useEffect(() => {
@@ -270,7 +340,60 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
           </button>
         </div>
 
-        {/* Error Alert */}
+        {/* Host Battle Control Panel */}
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/80 border border-purple-500/30 space-y-3 relative z-10">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Swords className="w-5 h-5 text-amber-400" />
+              <span className="text-xs font-black text-white uppercase tracking-wider">
+                BATTLE CONTROL & CHẾ ĐỘ TẬP TRUNG
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border ${
+                battleSessionState?.focusModeActive
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+              }`}>
+                {battleSessionState?.focusModeActive ? '🔴 Đã Khóa (Focus Mode)' : '🟢 Battle Mở'}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* Emergency Focus Mode Button */}
+            <button
+              onClick={handleToggleFocusMode}
+              className={`flex items-center justify-center gap-2 p-2.5 rounded-xl font-black text-xs transition-all border cursor-pointer ${
+                battleSessionState?.focusModeActive
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-lg'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 shadow-lg animate-pulse'
+              }`}
+            >
+              <Lock className="w-4 h-4" />
+              <span>
+                {battleSessionState?.focusModeActive
+                  ? '🟢 MỞ LẠI BATTLE TIME'
+                  : '📚 BẬT CHẾ ĐỘ TẬP TRUNG (KHÓA BATTLE)'}
+              </span>
+            </button>
+
+            {/* Battle Mode Selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-400 shrink-0">Mode:</span>
+              <select
+                value={battleSessionState?.battleMode || 'ROUND'}
+                onChange={(e) => handleChangeBattleMode(e.target.value as BattleMode)}
+                className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-amber-300 font-extrabold text-xs focus:outline-none cursor-pointer"
+              >
+                <option value="ROUND">⚔️ Battle theo Vòng (5 câu / 10s)</option>
+                <option value="RANDOM_TARGET_ONLY">🎯 Target Ngẫu Nhiên (Lớp Học)</option>
+                <option value="PER_QUESTION">⚡ Battle Mỗi Câu</option>
+                <option value="DISABLED">🔴 Tắt PvP Hoàn Toàn</option>
+              </select>
+            </div>
+          </div>
+        </div>
         {errorMessage && (
           <div
             role="alert"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount } from './types';
+import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount, BattleSessionState } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
 import { realtime } from './services/realtime';
@@ -26,6 +26,7 @@ import { shuffleStudentQuestions } from './utils/shuffle';
 import { calculateAnswerScore } from './utils/scoring';
 import { calculateCoinReward } from './services/coinEngine';
 import { StudentWalletService } from './services/studentWalletService';
+import { BattleEngine, createInitialBattleState } from './services/battleEngine';
 
 import {
   Sparkles,
@@ -245,7 +246,8 @@ export function App() {
   const handleCreateRoom = (quizToUse: Quiz) => {
     const hostId = `host-${Date.now()}`;
     const newRoom = realtime.createRoom(quizToUse, hostId);
-    setRoom(newRoom);
+    const roomWithBattle = realtime.updateBattleSessionState(newRoom.roomCode, createInitialBattleState());
+    setRoom(roomWithBattle || newRoom);
     setRole('HOST');
     localStorage.setItem(STORAGE_ACTIVE_HOST_ROOM, newRoom.roomCode);
     soundManager.playBGM();
@@ -383,6 +385,34 @@ export function App() {
     const transactionKey = `${room.roomCode}_q${currentQ?.id || player.currentQuestionIndex || 0}_${player.id}`;
     StudentWalletService.creditCoins(player.id, player.name, transactionKey, coinReward);
 
+    // Controlled Battle Mode Progression
+    if (room.battleSessionState && !room.battleSessionState.focusModeActive) {
+      const qUntil = Math.max(0, (room.battleSessionState.questionsUntilBattle || 5) - 1);
+      if (qUntil === 0 && room.battleSessionState.battleEnabled) {
+        soundManager.playCorrect();
+        const durationSec = 10;
+        const battleEndTime = Date.now() + durationSec * 1000;
+
+        realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) => ({
+          ...(prev || createInitialBattleState()),
+          currentPhase: 'BATTLE',
+          questionsUntilBattle: 0,
+          battleEndTimestamp: battleEndTime,
+        }));
+
+        setTimeout(() => {
+          realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) =>
+            BattleEngine.advanceRound(prev || createInitialBattleState())
+          );
+        }, durationSec * 1000);
+      } else {
+        realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) => ({
+          ...(prev || createInitialBattleState()),
+          questionsUntilBattle: qUntil,
+        }));
+      }
+    }
+
     return { scoreEarned: scoreToAdd, coinsEarned: coinReward.totalCoins };
   };
 
@@ -400,10 +430,36 @@ export function App() {
     if (updatedRoom) setRoom(updatedRoom);
   };
 
-  // Execute Player Power-Up Action
+  // Execute Player Power-Up Action with Controlled Battle Engine Validation
   const handleExecutePowerUp = (targetId: string, powerUpType: PowerUpType) => {
     if (!room || !player) return null;
-    const result = realtime.executePowerUp(room.roomCode, player.id, targetId, powerUpType);
+
+    const sessionState = room.battleSessionState || createInitialBattleState();
+    const opponents = Object.values(room.players);
+
+    // Validate attack through Controlled Battle Engine
+    const validation = BattleEngine.validateAttack({
+      attackerId: player.id,
+      targetId,
+      powerUpType,
+      sessionState,
+      opponents,
+    });
+
+    if (!validation.valid) {
+      soundManager.playShieldBlock();
+      return null;
+    }
+
+    const resolvedTargetId = validation.resolvedTargetId || targetId;
+    const result = realtime.executePowerUp(room.roomCode, player.id, resolvedTargetId, powerUpType);
+
+    if (result?.success) {
+      realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) =>
+        BattleEngine.registerAttackResult(prev || sessionState, player.id, resolvedTargetId)
+      );
+    }
+
     setShowPowerUpModal(false);
     return result;
   };
@@ -837,6 +893,7 @@ export function App() {
             questionNumber={currentQIdx + 1}
             totalQuestions={questionsList.length || 1}
             player={player}
+            battleSessionState={room.battleSessionState}
             onAnswerSubmit={handleAnswerSubmit}
             onAutoNext={handleStudentNextQuestion}
             onUnfreeze={handleUnfreezePlayer}
@@ -848,6 +905,7 @@ export function App() {
             opponents={opponents}
             isOpen={showPowerUpModal && !!player?.unlockedPowerUp}
             powerUpType={player.unlockedPowerUp}
+            battleSessionState={room.battleSessionState}
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => {
               setShowPowerUpModal(false);
@@ -1229,6 +1287,7 @@ export function App() {
             roomCode={room.roomCode}
             players={room.players}
             initialTargetId={alertTargetStudentId}
+            battleSessionState={room.battleSessionState}
           />
 
           <TeacherGiftModal
@@ -1284,6 +1343,7 @@ export function App() {
           roomCode={room.roomCode}
           players={room.players}
           initialTargetId={alertTargetStudentId}
+          battleSessionState={room.battleSessionState}
         />
 
         <TeacherGiftModal
