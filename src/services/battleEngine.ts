@@ -149,36 +149,35 @@ export class BattleEngine {
       config = DEFAULT_BATTLE_CONFIG,
     } = input;
 
-    // 1. Check if battle is enabled & focus mode is OFF
-    if (!sessionState.battleEnabled || sessionState.battleMode === 'DISABLED') {
-      return { valid: false, reason: 'Chế độ Trận đấu hiện đang tắt.' };
-    }
-
+    // 1. Check if Focus Mode is ON
     if (sessionState.focusModeActive) {
       return { valid: false, reason: 'Giáo viên đã bật Chế độ Tập trung.' };
     }
 
-    // 2. Check if we are in BATTLE phase
+    // 2. If it's a Learning / Self-Target Power-Up (e.g. MYSTERY_BOX, SHIELD, DOUBLE_POINTS, ORACLE_5050, etc.)
+    if (!this.isBattlePowerUp(powerUpType)) {
+      // Self-target learning items can always be executed by the student!
+      return { valid: true, resolvedTargetId: attackerId };
+    }
+
+    // 3. For Offensive PvP Power-Ups (ATTACK, FREEZE, BOMB):
+    if (!sessionState.battleEnabled || sessionState.battleMode === 'DISABLED') {
+      return { valid: false, reason: 'Chế độ Trận đấu hiện đang tắt.' };
+    }
+
     if (sessionState.currentPhase !== 'BATTLE') {
       return { valid: false, reason: 'Chỉ có thể tấn công trong Battle Time.' };
     }
 
-    // 3. Check timer deadline
     if (sessionState.battleEndTimestamp > 0 && currentTime > sessionState.battleEndTimestamp) {
       return { valid: false, reason: 'Thời gian Battle Time đã kết thúc.' };
     }
 
-    // 4. Check if attacker has already used their attack in this round
     if (sessionState.attackerLogThisRound[attackerId]) {
       return { valid: false, reason: 'Bạn đã sử dụng lượt tấn công trong vòng này rồi.' };
     }
 
-    // 5. Must be a battle power-up
-    if (!this.isBattlePowerUp(powerUpType)) {
-      return { valid: false, reason: 'Vật phẩm này là vật phẩm hỗ trợ học tập.' };
-    }
-
-    // 6. Handle target selection (Random vs Manual)
+    // Handle target selection (Random vs Manual)
     let finalTargetId = targetId;
     if (sessionState.studentTargetMode === 'RANDOM' || sessionState.battleMode === 'RANDOM_TARGET_ONLY') {
       const randomTarget = this.pickRandomTarget({ attackerId, opponents, sessionState, config });

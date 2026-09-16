@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Player, PowerUpType, BattleSessionState } from '../types';
 import { ChibiAvatar } from './ChibiAvatar';
 import {
@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   Lock,
   Flame,
+  X,
 } from 'lucide-react';
 import { soundManager } from '../services/audio';
 
@@ -68,14 +69,33 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [battleResult, setBattleResult] = useState<BattleResultData | null>(null);
 
+  // Exactly-once locks and timer refs
+  const executionLockRef = useRef<boolean>(false);
+  const hasFinishedRef = useRef<boolean>(false);
+  const autoCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Unified finish handler: exactly once execution for onClose & onNextQuestion
+  const finishRewardFlow = useCallback(() => {
+    if (hasFinishedRef.current) return;
+    hasFinishedRef.current = true;
+
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+
+    onClose();
+    if (onNextQuestion) {
+      onNextQuestion();
+    }
+  }, [onClose, onNextQuestion]);
+
   // Auto-close if Focus Mode is activated by teacher
   useEffect(() => {
-    if (isOpen && battleSessionState) {
-      if (battleSessionState.focusModeActive) {
-        onClose();
-      }
+    if (isOpen && battleSessionState?.focusModeActive) {
+      finishRewardFlow();
     }
-  }, [isOpen, battleSessionState, onClose]);
+  }, [isOpen, battleSessionState?.focusModeActive, finishRewardFlow]);
 
   const validTargets = useMemo(() => {
     if (!battleSessionState) {
@@ -88,50 +108,27 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
     });
   }, [opponents, attacker.id, battleSessionState]);
 
-  useEffect(() => {
-    if (isOpen) {
-      setIsExecuting(false);
-      setBattleResult(null);
-      setSelectedTargetId(null);
-
-      if (powerUpType) {
-        const meta = POWER_UP_CONFIG[powerUpType];
-        setActivePowerUp(powerUpType);
-
-        if (meta && meta.targetMode === 'OPPONENT') {
-          setStep('SELECT_TARGET');
-        } else {
-          setStep('SELECT_POWERUP');
-        }
-      } else {
-        setActivePowerUp(null);
-        setStep('SELECT_POWERUP');
-      }
-    }
-  }, [isOpen, powerUpType]);
-
+  // Core execution logic with strict executionLockRef check
   const executePowerUp = useCallback(
     (chosenType: PowerUpType, targetIdToUse: string) => {
-      if (isExecuting) return;
-
-      const meta = POWER_UP_CONFIG[chosenType] || POWER_UP_CONFIG.ATTACK;
-
-      if (meta.targetMode === 'OPPONENT') {
-        if (!targetIdToUse || targetIdToUse === attacker.id) {
-          return;
-        }
-      }
-
+      if (executionLockRef.current) return;
+      executionLockRef.current = true;
       setIsExecuting(true);
 
       try {
+        const meta = POWER_UP_CONFIG[chosenType] || POWER_UP_CONFIG.ATTACK;
+
+        if (meta.targetMode === 'OPPONENT') {
+          if (!targetIdToUse || targetIdToUse === attacker.id) {
+            executionLockRef.current = false;
+            setIsExecuting(false);
+            return;
+          }
+        }
+
         const target =
           opponents.find((p) => p.id === targetIdToUse) ||
           (meta.targetMode === 'SELF' ? attacker : null);
-
-        if (!target && meta.targetMode === 'OPPONENT') {
-          return;
-        }
 
         const targetName = target ? target.name : 'Đối thủ';
 
@@ -151,17 +148,80 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
             type: chosenType,
           });
           setStep('RESULT');
+
+          // Schedule auto-continue timer (1000ms UX delay)
+          if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
+          autoCloseTimerRef.current = setTimeout(() => {
+            finishRewardFlow();
+          }, 1000);
+        } else {
+          // If execution returned null (validation fail or already consumed), close cleanly
+          finishRewardFlow();
         }
+      } catch (err) {
+        console.error('[BattleActionModal] Execution error:', err);
+        finishRewardFlow();
       } finally {
         setIsExecuting(false);
       }
     },
-    [attacker, isExecuting, onExecutePowerUp, opponents]
+    [attacker, onExecutePowerUp, opponents, finishRewardFlow]
   );
+
+  // Pure Modal Initialization Effect (Runs ONLY when modal opens or powerUpType changes)
+  useEffect(() => {
+    if (isOpen) {
+      executionLockRef.current = false;
+      hasFinishedRef.current = false;
+      setIsExecuting(false);
+      setBattleResult(null);
+      setSelectedTargetId(null);
+
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = null;
+      }
+
+      if (powerUpType) {
+        const meta = POWER_UP_CONFIG[powerUpType];
+        setActivePowerUp(powerUpType);
+
+        if (meta && meta.targetMode === 'SELF') {
+          // Self-target power-ups execute immediately
+          executePowerUp(powerUpType, attacker.id);
+        } else if (meta && meta.targetMode === 'OPPONENT') {
+          if (battleSessionState?.studentTargetMode === 'RANDOM' || battleSessionState?.battleMode === 'RANDOM_TARGET_ONLY') {
+            const randomTarget = BattleEngine.pickRandomTarget({
+              attackerId: attacker.id,
+              opponents,
+              sessionState: battleSessionState,
+            });
+            if (randomTarget) {
+              executePowerUp(powerUpType, randomTarget.id);
+            } else {
+              setStep('SELECT_TARGET');
+            }
+          } else {
+            setStep('SELECT_TARGET');
+          }
+        } else {
+          setStep('SELECT_POWERUP');
+        }
+      } else {
+        setActivePowerUp(null);
+        setStep('SELECT_POWERUP');
+      }
+    }
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+      }
+    };
+  }, [isOpen, powerUpType]); // Clean dependencies: ONLY isOpen and powerUpType!
 
   const handleSelectRewardCard = useCallback(
     (type: PowerUpType) => {
-      if (isExecuting) return;
+      if (isExecuting || executionLockRef.current) return;
       const meta = POWER_UP_CONFIG[type];
       setActivePowerUp(type);
 
@@ -176,32 +236,18 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   );
 
   const handleFinishAndNext = useCallback(() => {
-    if (isExecuting) return;
-    setIsExecuting(true);
-
-    try {
-      setBattleResult(null);
-      setSelectedTargetId(null);
-      setActivePowerUp(null);
-      setStep('SELECT_POWERUP');
-      onClose();
-      if (onNextQuestion) {
-        onNextQuestion();
-      }
-    } finally {
-      setIsExecuting(false);
-    }
-  }, [isExecuting, onClose, onNextQuestion]);
+    finishRewardFlow();
+  }, [finishRewardFlow]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen && step === 'SELECT_POWERUP' && !isExecuting) {
-        onClose();
+      if (e.key === 'Escape' && isOpen && !isExecuting) {
+        finishRewardFlow();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, step, isExecuting, onClose]);
+  }, [isOpen, isExecuting, finishRewardFlow]);
 
   if (!isOpen) return null;
 
@@ -221,6 +267,14 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-2xl max-h-[90dvh] overflow-y-auto custom-scrollbar bg-slate-900 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-6 shadow-2xl text-center"
       >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-30 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-colors cursor-pointer"
+          title="Đóng cửa sổ"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
         <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* STEP: RESULT */}
@@ -528,13 +582,18 @@ const BattleResultView: React.FC<{
           </div>
         )}
 
-      <button
-        disabled={isExecuting}
-        onClick={onFinish}
-        className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 text-white font-black text-lg sm:text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer min-h-[50px]"
-      >
-        TIẾP TỤC CHƠI & SANG CÂU TIẾP ➔
-      </button>
+      <div className="space-y-1 pt-2">
+        <button
+          disabled={isExecuting}
+          onClick={onFinish}
+          className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 text-white font-black text-lg sm:text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer min-h-[50px]"
+        >
+          TIẾP TỤC ➔
+        </button>
+        <p className="text-[11px] text-slate-400 font-medium animate-pulse">
+          (Tự động tiếp tục sau 1s...)
+        </p>
+      </div>
     </div>
   );
 };

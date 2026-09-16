@@ -448,6 +448,10 @@ export function App() {
 
     if (!validation.valid) {
       soundManager.playShieldBlock();
+      setShowPowerUpModal(false);
+      if (room && player) {
+        realtime.clearPlayerPowerUp(room.roomCode, player.id);
+      }
       return null;
     }
 
@@ -461,8 +465,18 @@ export function App() {
     }
 
     setShowPowerUpModal(false);
+    if (room && player) {
+      realtime.clearPlayerPowerUp(room.roomCode, player.id);
+    }
     return result;
   };
+
+  // Auto-open Power-Up Modal on Student device when a powerup is granted/unlocked
+  useEffect(() => {
+    if (player?.unlockedPowerUp) {
+      setShowPowerUpModal(true);
+    }
+  }, [player?.unlockedPowerUp]);
 
   // Teacher: Send Gift / Power-Up Reward to Students
   const handleSendTeacherGift = (targetId: string, powerUpType: PowerUpType, giftTitle: string) => {
