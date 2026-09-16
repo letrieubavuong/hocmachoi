@@ -460,7 +460,7 @@ export class RealtimeService {
     const targetPlayer = targetId !== 'ALL' ? room.players[targetId] : undefined;
 
     const alertEvent: TeacherAlertEvent = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: `alert_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       senderName: 'Giáo Viên',
       targetId,
       targetName: targetPlayer ? targetPlayer.name : 'Tất cả học sinh',

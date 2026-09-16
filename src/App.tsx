@@ -782,6 +782,11 @@ export function App() {
     if (room.phase === 'LOBBY') {
       return (
         <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
+          <StudentAlertModal
+            alertEvent={room.latestTeacherAlert}
+            giftEvent={room.latestTeacherGift}
+            currentPlayerId={player.id}
+          />
           <div className="w-full max-w-6xl flex justify-between items-center mb-4">
             <button
               onClick={handleResetHome}

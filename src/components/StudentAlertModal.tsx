@@ -79,9 +79,9 @@ const DEFAULT_ALERT_STYLE: AlertStyle = ALERT_STYLE_CONFIG.CUSTOM;
 
 // Helper: Target validation
 const isEventForPlayer = (targetId: string, currentPlayerId?: string): boolean => {
-  if (targetId === 'ALL') return true;
+  if (!targetId || targetId === 'ALL') return true;
   if (!currentPlayerId) return false;
-  return targetId === currentPlayerId;
+  return String(targetId).trim() === String(currentPlayerId).trim();
 };
 
 // Helper: Safe date formatting
@@ -195,7 +195,7 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 font-sans animate-fade-in"
+      className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 font-sans animate-fade-in"
       onClick={(e) => e.stopPropagation()} // Prevent backdrop click propagation
     >
       {current.kind === 'GIFT' ? (
