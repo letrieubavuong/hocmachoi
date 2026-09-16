@@ -462,6 +462,7 @@ export function App() {
       );
     }
 
+    setPlayer((prev) => (prev ? { ...prev, unlockedPowerUp: null } : null));
     return result;
   };
 
@@ -922,8 +923,10 @@ export function App() {
             onExecutePowerUp={handleExecutePowerUp}
             onClose={() => {
               setShowPowerUpModal(false);
+              setPlayer((prev) => (prev ? { ...prev, unlockedPowerUp: null } : null));
               if (room && player) {
-                realtime.clearPlayerPowerUp(room.roomCode, player.id);
+                const updated = realtime.clearPlayerPowerUp(room.roomCode, player.id);
+                if (updated) setRoom(updated);
               }
             }}
             onNextQuestion={handleStudentNextQuestion}

@@ -304,8 +304,9 @@ export class RealtimeService {
     let newShieldCount = player.shieldCount;
     let unlockedPowerUp: PowerUpType | null = null;
 
-    // 2. Award new power-up reward if streak milestone reached (Streak >= 2)
-    if (newStreak >= 2) {
+    // 2. Award new power-up reward ONLY on streak milestones (Streak 2, 5, 8, 11...)
+    const isStreakMilestone = newStreak === 2 || newStreak === 5 || newStreak === 8 || (newStreak > 8 && newStreak % 3 === 0);
+    if (isStreakMilestone) {
       const playerList = Object.values(room.players).sort((a, b) => b.score - a.score);
       const rankIndex = playerList.findIndex((p) => p.id === playerId);
       const playerRank = rankIndex !== -1 ? rankIndex + 1 : playerList.length;
