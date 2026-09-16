@@ -218,8 +218,6 @@ export function App() {
           // Auto trigger power-up card modal ONLY if THIS player unlocked a power-up
           if (syncedPlayer.unlockedPowerUp && updatedRoom.phase === 'QUESTION') {
             setShowPowerUpModal(true);
-          } else if (!syncedPlayer.unlockedPowerUp) {
-            setShowPowerUpModal(false);
           }
         } else {
           // Player was removed / kicked by Teacher!

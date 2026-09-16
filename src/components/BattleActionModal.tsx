@@ -73,6 +73,7 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   const executionLockRef = useRef<boolean>(false);
   const hasFinishedRef = useRef<boolean>(false);
   const autoCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevIsOpenRef = useRef<boolean>(false);
 
   // Unified finish handler: exactly once execution for onClose & onNextQuestion
   const finishRewardFlow = useCallback(() => {
@@ -167,9 +168,9 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
     [attacker, onExecutePowerUp, opponents, finishRewardFlow]
   );
 
-  // Pure Modal Initialization Effect (Runs ONLY when modal opens or powerUpType changes)
+  // Pure Modal Initialization Effect (Runs ONLY when modal opens: transition from false to true)
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !prevIsOpenRef.current) {
       executionLockRef.current = false;
       hasFinishedRef.current = false;
       setIsExecuting(false);
@@ -189,6 +190,8 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
         setStep('SELECT_POWERUP');
       }
     }
+    prevIsOpenRef.current = isOpen;
+
     return () => {
       if (autoCloseTimerRef.current) {
         clearTimeout(autoCloseTimerRef.current);
