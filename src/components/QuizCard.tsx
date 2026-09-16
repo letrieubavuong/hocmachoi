@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Question, Player } from '../types';
 import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
 import { getRankTier } from '../data/rankAssets';
-import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Gauge, Check, X, Send, Eye, Snowflake, Sparkles, Bomb, HelpCircle } from 'lucide-react';
+import { calculateAnswerScore, evaluateShortAnswer, ScoreResult } from '../utils/scoring';
+import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Send, Eye, Snowflake, Sparkles, Bomb, HelpCircle, AlertTriangle } from 'lucide-react';
+
+const AUTO_NEXT_DELAY_MS = 1500;
 
 interface QuizCardProps {
   question: Question;
@@ -26,32 +29,54 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   onUnfreeze,
   onSendInquiry,
 }) => {
-  const [timeSpent, setTimeSpent] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
   const [hasSentInquiry, setHasSentInquiry] = useState(false);
+  const [isSendingInquiry, setIsSendingInquiry] = useState(false);
   const [freezeSeconds, setFreezeSeconds] = useState(10);
 
-  // 1. Multiple Choice state
+  // Input states
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-
-  // 2. True / False state (for 4 statements a, b, c, d)
   const [tfUserSelections, setTfUserSelections] = useState<Record<number, boolean>>({});
-
-  // 3. Short Answer state
   const [shortInput, setShortInput] = useState('');
+  const [lastEarnedScore, setLastEarnedScore] = useState<ScoreResult | null>(null);
 
-  const [lastEarnedScore, setLastEarnedScore] = useState<{
-    base: number;
-    speedBonus: number;
-    multiplier: number;
-    total: number;
-    speedRating: string;
-  } | null>(null);
+  // Refs for precise timing & double-submit locks
+  const startTimeRef = useRef<number>(performance.now());
+  const submitLockRef = useRef<boolean>(false);
+  const autoNextFiredRef = useRef<boolean>(false);
+  const autoNextTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const unfreezeFiredRef = useRef<boolean>(false);
 
   const qType = question.type || 'MULTIPLE_CHOICE';
 
-  // 50:50 Oracle power-up: compute 2 wrong indices to hide
-  const disabled5050Indices = React.useMemo(() => {
+  // 1. Data Validation: Check if question data is valid before allowing answers
+  const isQuestionDataValid = useMemo(() => {
+    if (!question || !question.questionText) return false;
+
+    if (qType === 'MULTIPLE_CHOICE') {
+      return (
+        Array.isArray(question.options) &&
+        question.options.length >= 2 &&
+        typeof question.correctIndex === 'number' &&
+        question.correctIndex >= 0 &&
+        question.correctIndex < question.options.length
+      );
+    } else if (qType === 'TRUE_FALSE') {
+      return (
+        Array.isArray(question.options) &&
+        question.options.length === 4 &&
+        Array.isArray(question.tfAnswers) &&
+        question.tfAnswers.length === 4 &&
+        question.tfAnswers.every((val) => typeof val === 'boolean')
+      );
+    } else if (qType === 'SHORT_ANSWER') {
+      return typeof question.shortAnswerText === 'string' && question.shortAnswerText.trim().length > 0;
+    }
+    return true;
+  }, [question, qType]);
+
+  // 2. 50:50 Oracle power-up: compute 2 wrong indices to hide
+  const disabled5050Indices = useMemo(() => {
     if (!player?.oracle5050Active || qType !== 'MULTIPLE_CHOICE' || question.correctIndex === undefined) {
       return [];
     }
@@ -59,29 +84,41 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return wrong.slice(0, 2);
   }, [player?.oracle5050Active, question.id, question.correctIndex, qType]);
 
-  const autoNextFiredRef = React.useRef(false);
-  const autoNextTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-
-  // Reset answer states strictly when question ID or questionNumber changes (not on every real-time player broadcast)
+  // Reset states strictly when question.id or questionNumber changes
   useEffect(() => {
-    setTimeSpent(0);
+    startTimeRef.current = performance.now();
+    submitLockRef.current = false;
+    autoNextFiredRef.current = false;
+    unfreezeFiredRef.current = false;
+
     setSelectedOption(null);
     setTfUserSelections({});
     setShortInput('');
     setIsAnswered(false);
     setLastEarnedScore(null);
     setHasSentInquiry(false);
-    autoNextFiredRef.current = false;
+    setIsSendingInquiry(false);
+
     if (autoNextTimerRef.current) {
       clearTimeout(autoNextTimerRef.current);
       autoNextTimerRef.current = null;
     }
   }, [question.id, questionNumber]);
 
-  // Auto-unfreeze timer: countdown 10s and call onUnfreeze
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (autoNextTimerRef.current) {
+        clearTimeout(autoNextTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Freeze timer handling
   useEffect(() => {
     if (!player?.isFrozen) {
       setFreezeSeconds(10);
+      unfreezeFiredRef.current = false;
       return;
     }
 
@@ -90,7 +127,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       setFreezeSeconds((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          if (onUnfreeze) onUnfreeze();
+          if (onUnfreeze && !unfreezeFiredRef.current) {
+            unfreezeFiredRef.current = true;
+            onUnfreeze();
+          }
           return 0;
         }
         return prev - 1;
@@ -100,16 +140,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return () => clearInterval(interval);
   }, [player?.isFrozen, onUnfreeze]);
 
-  useEffect(() => {
-    if (isAnswered) return;
-
-    const timer = setInterval(() => {
-      setTimeSpent((prev) => prev + 1);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isAnswered]);
-
+  // Auto Next Trigger
   const triggerAutoNext = () => {
     if (onAutoNext) {
       if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current);
@@ -118,7 +149,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           autoNextFiredRef.current = true;
           onAutoNext();
         }
-      }, 1500);
+      }, AUTO_NEXT_DELAY_MS);
     }
   };
 
@@ -133,95 +164,91 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     }
   };
 
+  // Core Evaluation & Submission
+  const processSubmission = (isCorrect: boolean, selectedIdx: number) => {
+    // Calculate exact elapsed seconds from high-precision timestamp
+    const elapsedSecs = Math.max(1, Math.round((performance.now() - startTimeRef.current) / 1000));
+
+    const scoreResult = calculateAnswerScore({
+      basePoints: question.points || 100,
+      timeSpentSec: elapsedSecs,
+      isCorrect,
+      streak: player?.streak || 0,
+      doublePointsActive: player?.doublePointsActive,
+    });
+
+    if (isCorrect) {
+      soundManager.playCorrect();
+      setLastEarnedScore(scoreResult);
+    } else {
+      soundManager.playWrong();
+      setLastEarnedScore(null);
+    }
+
+    onAnswerSubmit(selectedIdx, isCorrect, elapsedSecs);
+    triggerAutoNext();
+  };
+
   // Submit Multiple Choice Answer
   const handleSelectMC = (index: number) => {
-    if (isAnswered) return;
+    if (isAnswered || player?.isFrozen || submitLockRef.current || !isQuestionDataValid) return;
+    submitLockRef.current = true;
     setIsAnswered(true);
     setSelectedOption(index);
 
     const isCorrect = index === question.correctIndex;
-    evaluateAndSubmit(isCorrect, index);
-    triggerAutoNext();
+    processSubmission(isCorrect, index);
   };
 
-  // Submit True / False (ChoiceTF) Answer
+  // Toggle True/False Selection
   const handleToggleTF = (stmtIdx: number, val: boolean) => {
-    if (isAnswered) return;
+    if (isAnswered || player?.isFrozen || submitLockRef.current) return;
     setTfUserSelections((prev) => ({ ...prev, [stmtIdx]: val }));
   };
 
+  // Submit True / False Answer
   const handleSubmitTF = () => {
-    if (isAnswered) return;
+    if (isAnswered || player?.isFrozen || submitLockRef.current || !isQuestionDataValid) return;
+    if (!question.tfAnswers || question.tfAnswers.length !== 4) return;
+
+    submitLockRef.current = true;
     setIsAnswered(true);
 
-    const targetTF = question.tfAnswers || [true, false, true, false];
     let correctCount = 0;
     question.options.forEach((_, idx) => {
-      if (tfUserSelections[idx] === targetTF[idx]) {
+      if (tfUserSelections[idx] === question.tfAnswers![idx]) {
         correctCount++;
       }
     });
 
     const isCorrect = correctCount === question.options.length;
-    evaluateAndSubmit(isCorrect, 0);
-    triggerAutoNext();
+    processSubmission(isCorrect, 0);
   };
 
-  // Submit Short Answer (\shortans)
+  // Submit Short Answer
   const handleSubmitShort = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isAnswered || !shortInput.trim()) return;
+    if (isAnswered || player?.isFrozen || submitLockRef.current || !shortInput.trim() || !isQuestionDataValid) return;
+
+    submitLockRef.current = true;
     setIsAnswered(true);
 
-    const userClean = shortInput.trim().toLowerCase().replace(/\s+/g, '');
-    const targetClean = (question.shortAnswerText || '').trim().toLowerCase().replace(/\s+/g, '');
-    const isCorrect = userClean === targetClean || (parseFloat(userClean) === parseFloat(targetClean));
-
-    evaluateAndSubmit(isCorrect, 0);
-    triggerAutoNext();
+    const isCorrect = evaluateShortAnswer(shortInput, question.shortAnswerText || '');
+    processSubmission(isCorrect, 0);
   };
 
-  const evaluateAndSubmit = (isCorrect: boolean, selectedIdx: number) => {
-    let speedBonus = 0;
-    let speedRating = 'Thường';
-    if (timeSpent <= 3) {
-      speedBonus = 150;
-      speedRating = '⚡ TỐC ĐỘ SIÊU THẦN! (+150 PT)';
-    } else if (timeSpent <= 6) {
-      speedBonus = 100;
-      speedRating = '🚀 TỐC ĐỘ ÁNH SÁNG! (+100 PT)';
-    } else if (timeSpent <= 10) {
-      speedBonus = 50;
-      speedRating = '💨 TỐC ĐỘ NHANH NHẸN (+50 PT)';
+  // Inquiry handler
+  const handleSendInquiryClick = () => {
+    if (!onSendInquiry || hasSentInquiry || isSendingInquiry) return;
+    setIsSendingInquiry(true);
+    try {
+      onSendInquiry(questionNumber, question);
+      setHasSentInquiry(true);
+    } catch (err) {
+      console.error('[QuizCard] Failed to send inquiry:', err);
+    } finally {
+      setIsSendingInquiry(false);
     }
-
-    const basePoints = question.points || 100;
-    let multiplier = player && player.streak >= 2 ? 1.5 : 1;
-    if (player?.doublePointsActive) {
-      multiplier *= 2;
-    }
-    const totalEarned = isCorrect ? Math.round((basePoints + speedBonus) * multiplier) : 0;
-
-    if (isCorrect) {
-      soundManager.playCorrect();
-      setLastEarnedScore({
-        base: basePoints,
-        speedBonus,
-        multiplier,
-        total: totalEarned,
-        speedRating,
-      });
-    } else {
-      soundManager.playWrong();
-    }
-
-    onAnswerSubmit(selectedIdx, isCorrect, timeSpent);
-  };
-
-  const formatTimeSpent = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
   };
 
   const optionColors = [
@@ -234,22 +261,23 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const optionLabels = ['A', 'B', 'C', 'D'];
   const stmtLabels = ['a)', 'b)', 'c)', 'd)'];
   const currentRank = player ? getRankTier(player.score) : null;
+  const progressPct = totalQuestions > 0 ? Math.min(100, Math.max(0, (questionNumber / totalQuestions) * 100)) : 0;
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6">
+    <div className="w-full max-w-4xl mx-auto space-y-4 sm:space-y-6 font-sans">
       {/* Question Header & Player Stats */}
-      <div className="flex flex-wrap items-center justify-between bg-slate-900/90 border border-slate-800 p-4 rounded-2xl shadow-lg gap-3">
-        <div className="flex items-center gap-3">
-          <span className="px-3 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/50 rounded-xl font-black text-sm">
+      <div className="flex flex-wrap items-center justify-between bg-slate-900/90 border border-slate-800 p-3.5 sm:p-4 rounded-2xl shadow-lg gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <span className="px-3 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/50 rounded-xl font-black text-xs sm:text-sm shrink-0">
             Câu {questionNumber} / {totalQuestions}
           </span>
-          <span className="px-2.5 py-0.5 bg-slate-800 text-yellow-400 border border-slate-700 rounded-lg text-xs font-bold">
-            {qType === 'MULTIPLE_CHOICE' && 'Trắc Nghiệm 4 Lựa Chọn'}
-            {qType === 'TRUE_FALSE' && 'Trắc Nghiệm Đúng / Sai (choiceTF)'}
-            {qType === 'SHORT_ANSWER' && 'Trả Lời Ngắn (shortans)'}
+          <span className="px-2.5 py-1 bg-slate-800 text-yellow-400 border border-slate-700 rounded-lg text-xs font-bold shrink-0">
+            {qType === 'MULTIPLE_CHOICE' && 'Trắc Nghiệm (\\choice)'}
+            {qType === 'TRUE_FALSE' && 'Đúng / Sai (\\choiceTF)'}
+            {qType === 'SHORT_ANSWER' && 'Trả Lời Ngắn (\\shortans)'}
           </span>
           {player && currentRank && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {player.studentCode && (
                 <span className="px-2.5 py-1 bg-purple-950/80 border border-purple-500/50 text-purple-300 rounded-xl text-xs font-mono font-bold shadow-sm">
                   🆔 {player.studentCode}
@@ -259,304 +287,302 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                 <span>{currentRank.icon}</span>
                 <span>{currentRank.name}</span>
               </span>
-              <span className="text-yellow-400 font-extrabold text-sm">{player.score} PT</span>
+              <span className="text-yellow-400 font-extrabold text-xs sm:text-sm">{player.score.toLocaleString()} PT</span>
               {player.streak > 0 && (
-                <span className="flex items-center gap-1 text-amber-400 font-black text-xs bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/30">
-                  <Flame className="w-3.5 h-3.5" /> {player.streak}
+                <span className="flex items-center gap-1 text-amber-400 font-black text-xs bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                  <Flame className="w-3.5 h-3.5 text-amber-400" /> {player.streak}
                 </span>
               )}
               {player.shieldActive && (
-                <span className="flex items-center gap-1 text-cyan-400 font-black text-xs bg-cyan-500/10 px-2 py-1 rounded-lg border border-cyan-500/30">
-                  <Shield className="w-3.5 h-3.5" /> Khiên
+                <span className="flex items-center gap-1 text-cyan-400 font-black text-xs bg-cyan-500/10 px-2 py-0.5 rounded-lg border border-cyan-500/30">
+                  <Shield className="w-3.5 h-3.5 text-cyan-400" /> Khiên
                 </span>
               )}
             </div>
           )}
         </div>
 
-        {/* Elapsed Stopwatch Timer & Question Inquiry Button */}
-        <div className="flex items-center gap-3">
+        {/* Stopwatch Timer & Question Inquiry Button */}
+        <div className="flex items-center gap-2.5 shrink-0 ml-auto">
           {onSendInquiry && (
             <button
-              onClick={() => {
-                if (!hasSentInquiry) {
-                  setHasSentInquiry(true);
-                  onSendInquiry(questionNumber, question);
-                }
-              }}
+              type="button"
+              disabled={hasSentInquiry || isSendingInquiry}
+              onClick={handleSendInquiryClick}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-md ${
                 hasSentInquiry
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 cursor-default'
                   : 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-yellow-300 border-amber-400/40 hover:border-amber-400 active:scale-95'
               }`}
             >
-              <HelpCircle className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span>{hasSentInquiry ? '💬 Đã gửi thắc mắc cho GV' : '❓ Thắc mắc câu này'}</span>
+              <HelpCircle className="w-4 h-4 text-amber-400" />
+              <span>{hasSentInquiry ? '💬 Đã gửi thắc mắc' : '❓ Thắc mắc câu này'}</span>
             </button>
           )}
 
-          <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
-            <Clock className="w-4 h-4 text-purple-400" />
-            <span className="font-extrabold text-sm text-slate-200 font-mono">
-              Thời gian: <span className="text-yellow-400">{formatTimeSpent(timeSpent)}</span>
-            </span>
-          </div>
+          <ElapsedTimer isAnswered={isAnswered} startTimeRef={startTimeRef} />
         </div>
       </div>
 
-      {/* Quiz Overall Progress Bar */}
+      {/* Quiz Progress Bar */}
       <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80">
-        <div 
+        <div
           className="h-full bg-gradient-to-r from-purple-500 via-indigo-500 to-cyan-400 transition-all duration-500"
-          style={{ width: `${(questionNumber / totalQuestions) * 100}%` }}
+          style={{ width: `${progressPct}%` }}
         />
       </div>
 
-      {/* Active Power-Up Badges Ribbon */}
-      {(player?.doublePointsActive || player?.oracle5050Active || player?.reflectShieldActive || player?.isBombed) && (
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {player?.doublePointsActive && (
-            <div className="px-3.5 py-1.5 bg-amber-500/20 border border-amber-500/50 text-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md animate-bounce">
-              <Zap className="w-4 h-4 text-amber-400" />
-              <span>⚡ THẺ NHÂN 2 ĐIỂM SỐ ĐANG KÍCH HOẠT (X2 PT CÂU NÀY)!</span>
-            </div>
-          )}
-          {player?.oracle5050Active && qType === 'MULTIPLE_CHOICE' && (
-            <div className="px-3.5 py-1.5 bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md animate-pulse">
-              <Eye className="w-4 h-4 text-cyan-300" />
-              <span>👁️ MẮT THẦN 50:50 ĐÃ HỖ TRỢ LOẠI BỎ 2 ĐÁP ÁN SAI!</span>
-            </div>
-          )}
-          {player?.reflectShieldActive && (
-            <div className="px-3.5 py-1.5 bg-purple-500/20 border border-purple-500/50 text-purple-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
-              <Sparkles className="w-4 h-4 text-purple-300" />
-              <span>👑 KHIÊN PHẢN ĐÒN ĐANG BẢO VỆ BẠN!</span>
-            </div>
-          )}
-          {player?.isBombed && (
-            <div className="px-3.5 py-1.5 bg-orange-500/20 border border-orange-500/50 text-orange-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md animate-pulse">
-              <Bomb className="w-4 h-4 text-orange-400" />
-              <span>💣 BẠN ĐÃ BỊ ĐÍNH BOM HẸN GIỜ!</span>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Active Power-Up Ribbon */}
+      <PowerUpRibbon player={player} qType={qType} />
 
       {/* Main Question Body */}
-      <div className="bg-slate-800/90 backdrop-blur-xl p-8 rounded-3xl border-2 border-purple-500/30 shadow-2xl text-center relative overflow-hidden space-y-6">
+      <div className="bg-slate-800/90 backdrop-blur-xl p-5 sm:p-8 rounded-3xl border-2 border-purple-500/30 shadow-2xl text-center relative overflow-hidden space-y-6">
         {/* Freeze Effect Overlay */}
         {player?.isFrozen && (
           <div className="absolute inset-0 z-40 bg-cyan-950/95 backdrop-blur-md rounded-3xl border-4 border-cyan-400 flex flex-col items-center justify-center p-6 text-center space-y-3 animate-fade-in">
-            <Snowflake className="w-16 h-16 text-cyan-300 animate-spin" />
-            <h3 className="text-2xl font-black text-white">❄️ MÀN HÌNH BỊ ĐÓNG BẰNG!</h3>
-            <div className="text-3xl font-black text-cyan-300 bg-cyan-900/60 px-6 py-2 rounded-2xl border border-cyan-400/50 my-2 shadow-lg">
+            <Snowflake className="w-14 h-14 text-cyan-300 animate-spin" />
+            <h3 className="text-xl sm:text-2xl font-black text-white">❄️ MÀN HÌNH BỊ ĐÓNG BẰNG!</h3>
+            <div className="text-2xl sm:text-3xl font-black text-cyan-300 bg-cyan-900/60 px-6 py-2 rounded-2xl border border-cyan-400/50 my-2 shadow-lg">
               Tự động tan băng sau: <span className="text-yellow-300 font-mono">{freezeSeconds}s</span>
             </div>
             <p className="text-xs text-cyan-200 max-w-md font-semibold bg-cyan-950/70 p-3 rounded-xl border border-cyan-500/30 shadow">
-              {player?.freezeReason || 'Bạn bị đóng băng. Hãy kiên nhẫn đợi tan băng để tiếp tục chọn đáp án!'}
+              {player?.freezeReason || 'Bạn bị đóng băng. Hãy kiên nhẫn đợi tan băng để tiếp tục thao tác!'}
             </p>
           </div>
         )}
-        <h2 className="text-2xl md:text-3xl font-black text-white leading-relaxed">
-          <MathRenderer text={question.questionText} />
-        </h2>
 
-        {/* TYPE 1: MULTIPLE CHOICE (4 choices A, B, C, D) */}
-        {qType === 'MULTIPLE_CHOICE' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-            {question.options.map((option, idx) => {
-              const isSelected = selectedOption === idx;
-              const isCorrectOption = idx === question.correctIndex;
-              const isDisabledBy5050 = disabled5050Indices.includes(idx);
-              let cardStateStyle = optionColors[idx % optionColors.length];
-
-              if (isDisabledBy5050) {
-                cardStateStyle = 'from-slate-900 to-slate-950 opacity-20 border-slate-800 pointer-events-none line-through';
-              } else if (isAnswered) {
-                if (isCorrectOption) {
-                  cardStateStyle = 'from-emerald-500 to-green-600 border-emerald-300 ring-4 ring-emerald-400/50 scale-102';
-                } else if (isSelected && !isCorrectOption) {
-                  cardStateStyle = 'from-rose-700 to-red-800 opacity-60 border-red-500';
-                } else {
-                  cardStateStyle = 'from-slate-800 to-slate-900 opacity-40 border-slate-700';
-                }
-              }
-
-              return (
-                <button
-                  key={idx}
-                  disabled={isAnswered || isDisabledBy5050 || player?.isFrozen}
-                  onClick={() => handleSelectMC(idx)}
-                  className={`relative flex items-center p-5 rounded-2xl bg-gradient-to-r ${cardStateStyle} border-2 text-white font-extrabold text-left transition-all duration-200 shadow-xl active:scale-95 cursor-pointer disabled:cursor-default`}
-                >
-                  <span className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center font-black text-lg mr-4 border border-white/20 shrink-0">
-                    {optionLabels[idx]}
-                  </span>
-                  <span className="text-lg md:text-xl flex-1 pr-6">
-                    <MathRenderer text={option} />
-                  </span>
-
-                  {isAnswered && isCorrectOption && (
-                    <CheckCircle2 className="w-7 h-7 text-white absolute right-4" />
-                  )}
-                  {isAnswered && isSelected && !isCorrectOption && (
-                    <XCircle className="w-7 h-7 text-red-200 absolute right-4" />
-                  )}
-                </button>
-              );
-            })}
+        {/* Data Validation Failure Notice */}
+        {!isQuestionDataValid ? (
+          <div className="p-6 bg-rose-950/80 border-2 border-rose-500/80 rounded-2xl text-center space-y-3">
+            <AlertTriangle className="w-10 h-10 text-rose-400 mx-auto" />
+            <h3 className="text-lg font-black text-white">Dữ Liệu Câu Hỏi Không Hợp Lệ</h3>
+            <p className="text-xs text-rose-200 max-w-md mx-auto">
+              {qType === 'TRUE_FALSE' && 'Câu hỏi Đúng/Sai này chưa có đáp án chuẩn (tfAnswers). Vui lòng thông báo cho Giáo viên để cập nhật đề thi.'}
+              {qType === 'MULTIPLE_CHOICE' && 'Câu hỏi Trắc nghiệm này chưa có đáp án đúng (correctIndex). Vui lòng thông báo cho Giáo viên để cập nhật đề thi.'}
+              {qType === 'SHORT_ANSWER' && 'Câu hỏi Điền số này chưa có đáp án chuẩn (shortAnswerText). Vui lòng thông báo cho Giáo viên để cập nhật đề thi.'}
+            </p>
           </div>
-        )}
+        ) : (
+          <>
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white leading-relaxed overflow-x-auto text-wrap break-words">
+              <MathRenderer text={question.questionText} />
+            </h2>
 
-        {/* TYPE 2: TRUE / FALSE STATEMENTS (\choiceTF) */}
-        {qType === 'TRUE_FALSE' && (
-          <div className="space-y-4 text-left">
-            <div className="space-y-3">
-              {question.options.map((stmt, idx) => {
-                const userVal = tfUserSelections[idx];
-                const targetTF = question.tfAnswers || [true, false, true, false];
-                const targetVal = targetTF[idx];
+            {/* QTYPE 1: MULTIPLE CHOICE */}
+            {qType === 'MULTIPLE_CHOICE' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4 mt-6">
+                {question.options.map((option, idx) => {
+                  const isSelected = selectedOption === idx;
+                  const isCorrectOption = idx === question.correctIndex;
+                  const isDisabledBy5050 = disabled5050Indices.includes(idx);
+                  let cardStateStyle = optionColors[idx % optionColors.length];
 
-                return (
-                  <div
-                    key={idx}
-                    className="p-4 bg-slate-900/90 rounded-2xl border border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="px-2.5 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/40 rounded-lg text-xs font-black shrink-0">
-                        {stmtLabels[idx]}
+                  if (isDisabledBy5050) {
+                    cardStateStyle = 'from-slate-900 to-slate-950 opacity-20 border-slate-800 pointer-events-none line-through';
+                  } else if (isAnswered) {
+                    if (isCorrectOption) {
+                      cardStateStyle = 'from-emerald-500 to-green-600 border-emerald-300 ring-4 ring-emerald-400/50 scale-[1.01]';
+                    } else if (isSelected && !isCorrectOption) {
+                      cardStateStyle = 'from-rose-700 to-red-800 opacity-60 border-red-500';
+                    } else {
+                      cardStateStyle = 'from-slate-800 to-slate-900 opacity-40 border-slate-700';
+                    }
+                  }
+
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      aria-pressed={isSelected}
+                      disabled={isAnswered || isDisabledBy5050 || player?.isFrozen}
+                      onClick={() => handleSelectMC(idx)}
+                      className={`relative flex items-center p-4 sm:p-5 rounded-2xl bg-gradient-to-r ${cardStateStyle} border-2 text-white font-extrabold text-left transition-all duration-200 shadow-xl active:scale-95 cursor-pointer disabled:cursor-not-allowed`}
+                    >
+                      <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-black/20 flex items-center justify-center font-black text-base sm:text-lg mr-3 sm:mr-4 border border-white/20 shrink-0">
+                        {optionLabels[idx]}
                       </span>
-                      <span className="text-sm font-bold text-white">
-                        <MathRenderer text={stmt} />
+                      <span className="text-base sm:text-lg md:text-xl flex-1 pr-6 overflow-x-auto text-wrap break-words">
+                        <MathRenderer text={option} />
                       </span>
-                    </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        disabled={isAnswered}
-                        onClick={() => handleToggleTF(idx, true)}
-                        className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1 transition-all ${
-                          userVal === true
-                            ? 'bg-emerald-600 text-white border-2 border-emerald-400 shadow-md'
-                            : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                        }`}
-                      >
-                        <Check className="w-4 h-4" /> ĐÚNG
-                      </button>
-                      <button
-                        disabled={isAnswered}
-                        onClick={() => handleToggleTF(idx, false)}
-                        className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1 transition-all ${
-                          userVal === false
-                            ? 'bg-rose-600 text-white border-2 border-rose-400 shadow-md'
-                            : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                        }`}
-                      >
-                        <X className="w-4 h-4" /> SAI
-                      </button>
-
-                      {isAnswered && (
-                        <span className={`text-xs font-black px-2 py-1 rounded-lg ${
-                          userVal === targetVal ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
-                        }`}>
-                          {targetVal ? 'Đáp án: ĐÚNG' : 'Đáp án: SAI'}
-                        </span>
+                      {isAnswered && isCorrectOption && (
+                        <CheckCircle2 className="w-7 h-7 text-white absolute right-4 shrink-0" />
                       )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {!isAnswered && (
-              <button
-                disabled={Object.keys(tfUserSelections).length < question.options.length}
-                onClick={handleSubmitTF}
-                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:opacity-40 text-white font-black text-lg rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
-              >
-                <Send className="w-5 h-5" /> GỬI KẾT QUẢ ĐÚNG / SAI ➔
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* TYPE 3: SHORT ANSWER (\shortans) */}
-        {qType === 'SHORT_ANSWER' && (
-          <form onSubmit={handleSubmitShort} className="space-y-4 max-w-xl mx-auto">
-            <div>
-              <label className="block text-xs font-extrabold text-slate-300 mb-2 uppercase tracking-wider">
-                Nhập kết quả / câu trả lời ngắn của bạn:
-              </label>
-              <input
-                type="text"
-                disabled={isAnswered}
-                placeholder="Nhập con số hoặc đáp án (VD: 3.5)..."
-                value={shortInput}
-                onChange={(e) => setShortInput(e.target.value)}
-                className="w-full px-6 py-4 bg-slate-950 border-2 border-purple-500/60 rounded-2xl text-center text-yellow-400 font-black text-2xl focus:outline-none focus:border-yellow-400 transition-all placeholder:text-sm placeholder:font-normal placeholder:text-slate-600"
-              />
-            </div>
-
-            {!isAnswered ? (
-              <button
-                type="submit"
-                disabled={!shortInput.trim()}
-                className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-40 text-white font-black text-lg rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
-              >
-                <Send className="w-5 h-5" /> GỬI CÂU TRẢ LỜI NGẮN ➔
-              </button>
-            ) : (
-              <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs font-bold text-yellow-300">
-                Đáp án chuẩn: <span className="text-white text-sm">{question.shortAnswerText}</span>
+                      {isAnswered && isSelected && !isCorrectOption && (
+                        <XCircle className="w-7 h-7 text-red-200 absolute right-4 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
-          </form>
+
+            {/* QTYPE 2: TRUE / FALSE (\choiceTF) */}
+            {qType === 'TRUE_FALSE' && (
+              <div className="space-y-4 text-left">
+                <div className="space-y-3">
+                  {question.options.map((stmt, idx) => {
+                    const userVal = tfUserSelections[idx];
+                    const targetTF = question.tfAnswers || [true, true, true, true];
+                    const targetVal = targetTF[idx];
+
+                    return (
+                      <div
+                        key={idx}
+                        className="p-3.5 sm:p-4 bg-slate-900/90 rounded-2xl border border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <span className="px-2.5 py-1 bg-purple-600/30 text-purple-300 border border-purple-500/40 rounded-lg text-xs font-black shrink-0 mt-0.5">
+                            {stmtLabels[idx]}
+                          </span>
+                          <span className="text-sm font-bold text-white leading-relaxed overflow-x-auto text-wrap break-words">
+                            <MathRenderer text={stmt} />
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          <button
+                            type="button"
+                            aria-label={`Mệnh đề ${stmtLabels[idx]} Đúng`}
+                            disabled={isAnswered || player?.isFrozen}
+                            onClick={() => handleToggleTF(idx, true)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer disabled:cursor-not-allowed ${
+                              userVal === true
+                                ? 'bg-emerald-600 text-white border-2 border-emerald-400 shadow-md'
+                                : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
+                            }`}
+                          >
+                            ĐÚNG
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Mệnh đề ${stmtLabels[idx]} Sai`}
+                            disabled={isAnswered || player?.isFrozen}
+                            onClick={() => handleToggleTF(idx, false)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer disabled:cursor-not-allowed ${
+                              userVal === false
+                                ? 'bg-rose-600 text-white border-2 border-rose-400 shadow-md'
+                                : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
+                            }`}
+                          >
+                            SAI
+                          </button>
+
+                          {isAnswered && (
+                            <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${
+                              userVal === targetVal ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                            }`}>
+                              {targetVal ? 'Đáp án: ĐÚNG' : 'Đáp án: SAI'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!isAnswered && (
+                  <button
+                    type="button"
+                    disabled={
+                      player?.isFrozen ||
+                      question.options.some((_, index) => typeof tfUserSelections[index] !== 'boolean')
+                    }
+                    onClick={handleSubmitTF}
+                    className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:opacity-40 text-white font-black text-base sm:text-lg rounded-2xl shadow-xl shadow-green-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-5 h-5 shrink-0" /> GỬI KẾT QUẢ ĐÚNG / SAI ➔
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* QTYPE 3: SHORT ANSWER (\shortans) */}
+            {qType === 'SHORT_ANSWER' && (
+              <form onSubmit={handleSubmitShort} className="space-y-4 max-w-xl mx-auto">
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-300 mb-2 uppercase tracking-wider">
+                    Nhập kết quả / câu trả lời ngắn của bạn:
+                  </label>
+                  <input
+                    type="text"
+                    disabled={isAnswered || player?.isFrozen}
+                    placeholder="Nhập kết quả (VD: 3.5 hoặc -2)..."
+                    value={shortInput}
+                    onChange={(e) => setShortInput(e.target.value)}
+                    className="w-full px-5 py-3.5 bg-slate-950 border-2 border-purple-500/60 rounded-2xl text-center text-yellow-400 font-black text-xl sm:text-2xl focus:outline-none focus:border-yellow-400 transition-all placeholder:text-sm placeholder:font-normal placeholder:text-slate-600 disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                {!isAnswered ? (
+                  <button
+                    type="submit"
+                    disabled={!shortInput.trim() || player?.isFrozen}
+                    className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-40 text-white font-black text-base sm:text-lg rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-5 h-5 shrink-0" /> GỬI CÂU TRẢ LỜI NGẮN ➔
+                  </button>
+                ) : (
+                  <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs font-bold text-yellow-300">
+                    Đáp án chuẩn: <span className="text-white text-sm">{question.shortAnswerText}</span>
+                  </div>
+                )}
+              </form>
+            )}
+          </>
         )}
       </div>
 
       {/* Speed Bonus & Instant Result Feedback Banner */}
       {isAnswered && (
-        <div className={`p-5 rounded-2xl text-center font-black border space-y-2 animate-bounce ${
-          lastEarnedScore 
-            ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300' 
-            : 'bg-rose-600/30 border-rose-500 text-rose-300'
-        }`}>
+        <div
+          role="status"
+          aria-live="polite"
+          className={`p-4 sm:p-5 rounded-2xl text-center font-black border space-y-3 animate-fade-in ${
+            lastEarnedScore
+              ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
+              : 'bg-rose-600/30 border-rose-500 text-rose-300'
+          }`}
+        >
           {lastEarnedScore ? (
-            <div className="space-y-1">
-              <span className="text-xl block">🎉 CHÍNH XÁC HOÀN HẢO!</span>
-              <div className="flex flex-wrap items-center justify-center gap-3 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-emerald-500/40 text-yellow-300">
-                <span className="flex items-center gap-1 text-amber-400 font-extrabold">
-                  <Gauge className="w-4 h-4" /> {lastEarnedScore.speedRating}
-                </span>
+            <div className="space-y-2">
+              <span className="text-lg sm:text-xl block">🎉 CHÍNH XÁC HOÀN HẢO!</span>
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-xs bg-slate-950/70 p-3 rounded-xl border border-emerald-500/40 text-yellow-300">
+                <span className="font-extrabold text-amber-400">{lastEarnedScore.speedRating}</span>
                 <span>•</span>
-                <span>Cơ bản: {lastEarnedScore.base}pt</span>
+                <span>Cơ bản: {lastEarnedScore.basePoints}pt</span>
                 <span>+</span>
                 <span>Tốc độ: +{lastEarnedScore.speedBonus}pt</span>
-                {lastEarnedScore.multiplier > 1 && (
+
+                {lastEarnedScore.effectiveMultiplier > 1 && (
                   <>
-                    <span>x</span>
-                    <span className="text-amber-400 font-extrabold">Chuỗi {lastEarnedScore.multiplier}x</span>
+                    <span>•</span>
+                    <span className="text-amber-400 font-extrabold">
+                      Hệ số ({lastEarnedScore.streakMultiplier > 1 ? `Chuỗi ${lastEarnedScore.streakMultiplier}x` : ''}
+                      {lastEarnedScore.streakMultiplier > 1 && lastEarnedScore.doublePointsMultiplier > 1 ? ' + ' : ''}
+                      {lastEarnedScore.doublePointsMultiplier > 1 ? 'X2 Điểm' : ''}): {lastEarnedScore.effectiveMultiplier}x
+                    </span>
                   </>
                 )}
                 <span>=</span>
                 <span className="text-sm font-black text-yellow-400 bg-yellow-500/20 px-2 py-0.5 rounded-lg border border-yellow-400/50">
-                  +{lastEarnedScore.total} Điểm!
+                  +{lastEarnedScore.totalEarned} Điểm!
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 block pt-1">⚡ Tự động chuyển câu tiếp theo sau 1.5s...</span>
             </div>
           ) : (
             <div className="space-y-1">
               <span className="text-lg block">❌ CHƯA CHÍNH XÁC!</span>
-              <span className="text-[11px] text-slate-400 block">⚡ Tự động chuyển câu tiếp theo sau 1.5s...</span>
             </div>
           )}
 
           {onAutoNext && (
-            <div className="pt-2">
+            <div className="pt-1 flex items-center justify-center gap-3">
+              <span className="text-[11px] text-slate-300 font-medium">Tự động chuyển câu tiếp theo sau 1.5s</span>
               <button
+                type="button"
                 onClick={handleManualNext}
-                className="px-6 py-2.5 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-sm rounded-xl shadow-lg transition-transform active:scale-95 cursor-pointer"
+                className="px-5 py-2 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg transition-transform active:scale-95 cursor-pointer"
               >
                 CÂU TIẾP THEO ➔
               </button>
@@ -564,7 +590,8 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           )}
 
           {question.explanation && (
-            <div className="text-xs font-semibold text-slate-300 pt-1 border-t border-slate-700/50">
+            <div className="text-xs font-semibold text-slate-300 pt-2 border-t border-slate-700/50 text-left">
+              <span className="text-[10px] font-bold text-slate-400 block mb-1 uppercase">Lời giải / Giải thích:</span>
               <MathRenderer text={question.explanation} />
             </div>
           )}
@@ -573,3 +600,75 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     </div>
   );
 };
+
+// Sub-component: Elapsed Timer (Isolated to avoid re-rendering entire question text every second)
+const ElapsedTimer: React.FC<{ isAnswered: boolean; startTimeRef: React.RefObject<number> }> = React.memo(({ isAnswered, startTimeRef }) => {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (isAnswered) return;
+
+    const interval = setInterval(() => {
+      const now = performance.now();
+      const elapsed = Math.max(0, Math.floor((now - (startTimeRef.current || now)) / 1000));
+      setSeconds(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isAnswered, startTimeRef]);
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+      <Clock className="w-4 h-4 text-purple-400 shrink-0" />
+      <span className="font-extrabold text-xs sm:text-sm text-slate-200 font-mono">
+        Thời gian: <span className="text-yellow-400">{formatTime(seconds)}</span>
+      </span>
+    </div>
+  );
+});
+
+ElapsedTimer.displayName = 'ElapsedTimer';
+
+// Sub-component: Power-Up Ribbon Display
+const PowerUpRibbon: React.FC<{ player?: Player; qType: string }> = React.memo(({ player, qType }) => {
+  if (!player?.doublePointsActive && !player?.oracle5050Active && !player?.reflectShieldActive && !player?.isBombed) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2.5">
+      {player?.doublePointsActive && (
+        <div className="px-3.5 py-1.5 bg-amber-500/20 border border-amber-500/50 text-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+          <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>⚡ THẺ NHÂN 2 ĐIỂM SỐ ĐANG KÍCH HOẠT (X2 PT CÂU NÀY)!</span>
+        </div>
+      )}
+      {player?.oracle5050Active && qType === 'MULTIPLE_CHOICE' && (
+        <div className="px-3.5 py-1.5 bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+          <Eye className="w-4 h-4 text-cyan-300 shrink-0" />
+          <span>👁️ MẮT THẦN 50:50 ĐÃ LOẠI BỎ 2 ĐÁP ÁN SAI!</span>
+        </div>
+      )}
+      {player?.reflectShieldActive && (
+        <div className="px-3.5 py-1.5 bg-purple-500/20 border border-purple-500/50 text-purple-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+          <Sparkles className="w-4 h-4 text-purple-300 shrink-0" />
+          <span>👑 KHIÊN PHẢN ĐÒN ĐANG BẢO VỆ BẠN!</span>
+        </div>
+      )}
+      {player?.isBombed && (
+        <div className="px-3.5 py-1.5 bg-orange-500/20 border border-orange-500/50 text-orange-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+          <Bomb className="w-4 h-4 text-orange-400 shrink-0" />
+          <span>💣 BẠN ĐÃ BỊ ĐÍNH BOM HẸN GIỜ!</span>
+        </div>
+      )}
+    </div>
+  );
+});
+
+PowerUpRibbon.displayName = 'PowerUpRibbon';

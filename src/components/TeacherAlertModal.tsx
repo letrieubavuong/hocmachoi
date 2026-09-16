@@ -1,8 +1,74 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Player } from '../types';
-import { Megaphone, X, Send, Volume2, ShieldAlert, AlertTriangle, MessageSquare, Sparkles } from 'lucide-react';
+import {
+  Megaphone,
+  X,
+  Send,
+  AlertTriangle,
+  MessageSquare,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Users,
+} from 'lucide-react';
 import { realtime } from '../services/realtime';
 import { soundManager } from '../services/audio';
+
+export const ALL_TARGET = 'ALL';
+
+export type TeacherAlertType = 'WARNING' | 'SILENCE' | 'FOCUS' | 'CUSTOM' | 'PRAISE';
+
+export interface AlertPreset {
+  id: string;
+  type: TeacherAlertType;
+  icon: string;
+  title: string;
+  message: string;
+  color: string;
+}
+
+export const ALERT_PRESETS: readonly AlertPreset[] = [
+  {
+    id: 'silence',
+    type: 'SILENCE',
+    icon: '🤫',
+    title: 'Cấm nói chuyện',
+    message: 'Yêu cầu cả lớp giữ trật tự, tuyệt đối không nói chuyện hay gây ồn!',
+    color: 'bg-red-600/20 border-red-500/40 text-red-300 hover:bg-red-600/30',
+  },
+  {
+    id: 'focus',
+    type: 'FOCUS',
+    icon: '📝',
+    title: 'Nghiêm túc làm bài',
+    message: 'Nghiêm túc tự làm bài, không xem bài hay trao đổi với bạn xung quanh!',
+    color: 'bg-amber-600/20 border-amber-500/40 text-amber-300 hover:bg-amber-600/30',
+  },
+  {
+    id: 'no-tab',
+    type: 'WARNING',
+    icon: '⚠️',
+    title: 'Cấm mở tab khác',
+    message: 'Cảnh báo: Tập trung hoàn toàn vào bài test, tuyệt đối không mở tab khác tra cứu!',
+    color: 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600/30',
+  },
+  {
+    id: 'time',
+    type: 'WARNING',
+    icon: '⏱️',
+    title: 'Nhắc nhở thời gian',
+    message: 'Thời gian làm bài sắp hết, các em hãy rà soát lại kỹ các câu trả lời!',
+    color: 'bg-blue-600/20 border-blue-500/40 text-blue-300 hover:bg-blue-600/30',
+  },
+  {
+    id: 'praise',
+    type: 'PRAISE',
+    icon: '🌟',
+    title: 'Khen ngợi lớp',
+    message: 'Các em đang làm bài rất tốt, tiếp tục phát huy tốc độ và độ chính xác nhé!',
+    color: 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30',
+  },
+] as const;
 
 interface TeacherAlertModalProps {
   isOpen: boolean;
@@ -17,128 +83,249 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
   onClose,
   roomCode,
   players,
-  initialTargetId = 'ALL',
+  initialTargetId = ALL_TARGET,
 }) => {
   const [selectedTarget, setSelectedTarget] = useState<string>(initialTargetId);
   const [customMessage, setCustomMessage] = useState('');
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [selectedAlertType, setSelectedAlertType] = useState<TeacherAlertType>('WARNING');
+  const [isSending, setIsSending] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [sentNotice, setSentNotice] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const playersList = useMemo(() => Object.values(players), [players]);
+
+  // Reset state on modal open or initialTargetId change
+  useEffect(() => {
     if (isOpen) {
-      setSelectedTarget(initialTargetId || 'ALL');
+      const isValidTarget =
+        initialTargetId === ALL_TARGET || !!players[initialTargetId];
+
+      setSelectedTarget(isValidTarget ? initialTargetId : ALL_TARGET);
+      setCustomMessage('');
+      setSelectedPreset(null);
+      setSelectedAlertType('WARNING');
+      setIsSending(false);
+      setShowConfirmModal(false);
+      setSentNotice(null);
+      setErrorMessage(null);
     }
-  }, [isOpen, initialTargetId]);
+  }, [isOpen, initialTargetId, players]);
+
+  // Reset stale target if selected student leaves room
+  useEffect(() => {
+    if (selectedTarget !== ALL_TARGET && !players[selectedTarget]) {
+      setSelectedTarget(ALL_TARGET);
+    }
+  }, [players, selectedTarget]);
+
+  // Timer cleanup for sentNotice
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const currentTargetPlayer = useMemo(
+    () => (selectedTarget !== ALL_TARGET ? players[selectedTarget] : null),
+    [players, selectedTarget]
+  );
+
+  const handleSelectPreset = useCallback((preset: AlertPreset) => {
+    setSelectedPreset(preset.id);
+    setSelectedAlertType(preset.type);
+    setCustomMessage(preset.message);
+  }, []);
+
+  const handleInitiateSend = () => {
+    if (isSending) return;
+    setErrorMessage(null);
+
+    const finalMsg = customMessage.trim();
+    if (!finalMsg) {
+      setErrorMessage('Vui lòng chọn mẫu hoặc nhập nội dung cảnh báo!');
+      return;
+    }
+
+    if (!roomCode.trim()) {
+      setErrorMessage('Mã phòng không hợp lệ!');
+      return;
+    }
+
+    if (playersList.length === 0) {
+      setErrorMessage('Chưa có học sinh nào trong phòng.');
+      return;
+    }
+
+    if (selectedTarget === ALL_TARGET) {
+      setShowConfirmModal(true);
+    } else {
+      executeSend();
+    }
+  };
+
+  const executeSend = async () => {
+    if (isSending) return;
+    setIsSending(true);
+
+    try {
+      const finalMsg = customMessage.trim();
+      const resRoom = realtime.sendTeacherAlert(
+        roomCode,
+        selectedTarget,
+        finalMsg,
+        selectedAlertType
+      );
+
+      if (resRoom) {
+        soundManager.playCorrect();
+        const targetText =
+          selectedTarget === ALL_TARGET
+            ? `toàn bộ ${playersList.length} học sinh`
+            : currentTargetPlayer?.name || 'học sinh';
+
+        setSentNotice(`✅ Đã phát thông báo tới ${targetText}!`);
+        setShowConfirmModal(false);
+        setCustomMessage('');
+        setSelectedPreset(null);
+
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = setTimeout(() => {
+          setSentNotice(null);
+        }, 3500);
+      } else {
+        setErrorMessage('Không thể phát thông báo. Vui lòng thử lại!');
+      }
+    } catch {
+      setErrorMessage('Có lỗi xảy ra khi phát thông báo.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // Keyboard Esc listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen && !isSending) {
+        if (showConfirmModal) {
+          setShowConfirmModal(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isSending, showConfirmModal, onClose]);
 
   if (!isOpen) return null;
 
-  const playersList = Object.values(players);
-
-  const PRESETS = [
-    {
-      id: 'silence',
-      type: 'SILENCE' as const,
-      icon: '🤫',
-      title: 'Cấm nói chuyện',
-      message: 'Yêu cầu cả lớp giữ trật tự, tuyệt đối không nói chuyện hay gây ồn!',
-      color: 'bg-red-600/20 border-red-500/40 text-red-300 hover:bg-red-600/30',
-    },
-    {
-      id: 'focus',
-      type: 'FOCUS' as const,
-      icon: '📝',
-      title: 'Nghiêm túc làm bài',
-      message: 'Nghiêm túc tự làm bài, không xem bài hay trao đổi với bạn xung quanh!',
-      color: 'bg-amber-600/20 border-amber-500/40 text-amber-300 hover:bg-amber-600/30',
-    },
-    {
-      id: 'no-tab',
-      type: 'WARNING' as const,
-      icon: '⚠️',
-      title: 'Cấm mở tab khác',
-      message: 'Cảnh báo: Tập trung hoàn toàn vào bài test, tuyệt đối không mở tab khác tra cứu!',
-      color: 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600/30',
-    },
-    {
-      id: 'time',
-      type: 'WARNING' as const,
-      icon: '⏱️',
-      title: 'Nhắc nhở thời gian',
-      message: 'Thời gian làm bài sắp hết, các em hãy rà soát lại kỹ các câu trả lời!',
-      color: 'bg-blue-600/20 border-blue-500/40 text-blue-300 hover:bg-blue-600/30',
-    },
-    {
-      id: 'praise',
-      type: 'PRAISE' as const,
-      icon: '🌟',
-      title: 'Khen ngợi lớp',
-      message: 'Các em đang làm bài rất tốt, tiếp tục phát huy tốc độ và độ chính xác nhé!',
-      color: 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30',
-    },
-  ];
-
-  const handleSend = (presetMsg?: string, alertType?: any) => {
-    const finalMsg = (presetMsg || customMessage).trim();
-    if (!finalMsg) return;
-
-    soundManager.playCorrect();
-    realtime.sendTeacherAlert(
-      roomCode,
-      selectedTarget,
-      finalMsg,
-      alertType || 'WARNING'
-    );
-
-    const targetText = selectedTarget === 'ALL' ? 'tất cả học sinh' : (players[selectedTarget]?.name || 'học sinh');
-    setSentNotice(`✅ Đã phát thông báo thành công tới ${targetText}!`);
-    setCustomMessage('');
-    setSelectedPreset(null);
-
-    setTimeout(() => setSentNotice(null), 3500);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-slate-900 border-2 border-purple-500/40 rounded-3xl p-6 shadow-2xl space-y-6 relative overflow-hidden">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="teacher-alert-title"
+      onClick={() => {
+        if (!isSending && !showConfirmModal) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 font-sans"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[90dvh] overflow-y-auto custom-scrollbar bg-slate-900 border-2 border-purple-500/40 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 text-white relative"
+      >
         {/* Ambient Glow */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
 
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 relative z-10">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-purple-600/20 border border-purple-500/40 rounded-2xl text-purple-300">
-              <Megaphone className="w-6 h-6 animate-pulse" />
+            <div className="p-2.5 bg-purple-600/20 border border-purple-500/40 rounded-2xl text-purple-300 shrink-0">
+              <Megaphone className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-xl font-black text-white">Gửi Cảnh Báo & Nhắc Nhở Học Sinh</h3>
-              <p className="text-xs text-slate-400">Phát thông báo nhắc nhở trực tiếp lên màn hình học sinh</p>
+              <h3
+                id="teacher-alert-title"
+                className="text-lg sm:text-xl font-black text-white"
+              >
+                GỬI CẢNH BÁO & NHẮC NHỞ HỌC SINH
+              </h3>
+              <p className="text-xs text-slate-400">
+                Phát thông báo nhắc nhở trực tiếp lên màn hình học sinh
+              </p>
             </div>
           </div>
           <button
+            disabled={isSending}
+            aria-label="Đóng cửa sổ cảnh báo"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Error Alert */}
+        {errorMessage && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="p-3 bg-rose-950/80 border border-rose-500/50 text-rose-200 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 relative z-10"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="p-0.5 text-rose-400 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Notification Feedback Toast */}
+        {sentNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="p-3 bg-emerald-600/30 border border-emerald-500/50 rounded-xl text-emerald-300 font-extrabold text-xs text-center animate-fade-in relative z-10"
+          >
+            {sentNotice}
+          </div>
+        )}
+
         {/* Target Student Selector */}
-        <div className="space-y-2">
+        <div className="space-y-2 relative z-10">
           <label className="block text-xs font-black text-slate-300 uppercase tracking-wider">
             1. Chọn Đối Tượng Nhận Cảnh Báo:
           </label>
           <select
+            disabled={isSending}
             value={selectedTarget}
             onChange={(e) => setSelectedTarget(e.target.value)}
-            className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-yellow-300 font-extrabold text-sm focus:outline-none focus:border-purple-500"
+            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-yellow-300 font-extrabold text-xs sm:text-sm focus:outline-none focus:border-purple-500 cursor-pointer"
           >
-            <option value="ALL">📢 Gửi Cho TẤT CẢ Học Sinh Trong Lớp ({playersList.length} HS)</option>
+            <option value={ALL_TARGET}>
+              📢 Gửi Cho TẤT CẢ Học Sinh Trong Lớp ({playersList.length} HS)
+            </option>
             {playersList.map((p) => {
-              const switchText = (p.tabSwitchCount || 0) > 0 ? ` (⚠️ ${p.tabSwitchCount} lần rời tab)` : '';
+              const switchText =
+                (p.tabSwitchCount || 0) > 0
+                  ? ` (⚠️ ${p.tabSwitchCount} lần rời tab)`
+                  : '';
               const statusText = p.isTabActive === false ? ' [🔴 Đang rời tab]' : '';
               return (
                 <option key={p.id} value={p.id}>
-                  🎯 Chỉ gửi riêng cho: {p.name}{statusText}{switchText}
+                  🎯 Chỉ gửi riêng cho: {p.name}
+                  {statusText}
+                  {switchText}
                 </option>
               );
             })}
@@ -146,61 +333,179 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
         </div>
 
         {/* Mẫu cảnh báo nhanh (Quick Presets) */}
-        <div className="space-y-2">
+        <div className="space-y-2 relative z-10">
           <label className="block text-xs font-black text-slate-300 uppercase tracking-wider">
-            2. Các Mẫu Cảnh Báo Nhanh (Click để phát ngay):
+            2. Các Mẫu Cảnh Báo Nhanh (Bấm để chọn mẫu):
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {PRESETS.map((p) => (
-              <button
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {ALERT_PRESETS.map((p) => (
+              <AlertPresetCard
                 key={p.id}
-                type="button"
-                onClick={() => handleSend(p.message, p.type)}
-                className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 active:scale-95 ${p.color}`}
-              >
-                <span className="text-xl">{p.icon}</span>
-                <div>
-                  <span className="font-extrabold text-xs block">{p.title}</span>
-                  <span className="text-[11px] opacity-80 leading-tight block">{p.message}</span>
-                </div>
-              </button>
+                preset={p}
+                isSelected={selectedPreset === p.id}
+                isDisabled={isSending}
+                onSelect={() => handleSelectPreset(p)}
+              />
             ))}
           </div>
         </div>
 
         {/* Nhập thông điệp tùy chỉnh */}
-        <div className="space-y-2 pt-2 border-t border-slate-800">
-          <label className="block text-xs font-black text-slate-300 uppercase tracking-wider">
-            3. Hoặc Nhập Nội Dung Cảnh Báo Tùy Chỉnh:
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Nhập nội dung nhắc nhở tùy chỉnh (VD: Em Nam trật tự làm bài)..."
-              value={customMessage}
-              onChange={(e) => setCustomMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSend();
-              }}
-              className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm font-semibold focus:outline-none focus:border-purple-500"
-            />
-            <button
-              onClick={() => handleSend()}
-              disabled={!customMessage.trim()}
-              className="px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-extrabold text-sm rounded-xl shrink-0 flex items-center gap-2 shadow-lg transition-transform active:scale-95 cursor-pointer"
-            >
-              <Send className="w-4 h-4" /> Gửi
-            </button>
+        <div className="space-y-2 pt-2 border-t border-slate-800 relative z-10">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-black text-slate-300 uppercase tracking-wider">
+              3. Xem / Sửa Nội Dung Cảnh Báo:
+            </label>
+            <span className="text-[11px] text-slate-400 font-mono">
+              {customMessage.length} / 250
+            </span>
+          </div>
+
+          <textarea
+            disabled={isSending}
+            rows={2}
+            maxLength={250}
+            placeholder="Nhập nội dung nhắc nhở tùy chỉnh (VD: Em Nam trật tự làm bài)..."
+            value={customMessage}
+            onChange={(e) => {
+              setCustomMessage(e.target.value);
+              setSelectedPreset(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handleInitiateSend();
+              }
+            }}
+            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs sm:text-sm font-semibold focus:outline-none focus:border-purple-500 resize-none"
+          />
+        </div>
+
+        {/* Send Summary Box */}
+        <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-2xl flex items-center justify-between text-xs relative z-10 flex-wrap gap-2">
+          <div>
+            <span className="text-slate-400 font-bold block">NGƯỜI NHẬN:</span>
+            <span className="text-white font-black text-xs sm:text-sm">
+              {selectedTarget === ALL_TARGET
+                ? `📢 Toàn bộ lớp • ${playersList.length} học sinh`
+                : currentTargetPlayer
+                ? `🎯 ${currentTargetPlayer.name}${
+                    currentTargetPlayer.isTabActive === false ? ' [🔴 Đang rời tab]' : ''
+                  }`
+                : 'Chưa chọn'}
+            </span>
+          </div>
+
+          <div className="text-right">
+            <span className="text-slate-400 font-bold block">LOẠI THÔNG BÁO:</span>
+            <span className="text-yellow-400 font-black text-xs sm:text-sm">
+              {selectedAlertType === 'SILENCE' && '🤫 Cấm nói chuyện'}
+              {selectedAlertType === 'FOCUS' && '📝 Nghiêm túc làm bài'}
+              {selectedAlertType === 'WARNING' && '⚠️ Cảnh báo'}
+              {selectedAlertType === 'PRAISE' && '🌟 Khen ngợi'}
+              {selectedAlertType === 'CUSTOM' && '📢 Tùy chỉnh'}
+            </span>
           </div>
         </div>
 
-        {/* Notification Feedback Toast */}
-        {sentNotice && (
-          <div className="p-3 bg-emerald-600/30 border border-emerald-500/50 rounded-xl text-emerald-300 font-extrabold text-xs text-center animate-fade-in">
-            {sentNotice}
-          </div>
-        )}
+        {/* Action Button */}
+        <div className="pt-1 relative z-10">
+          <button
+            disabled={isSending || !customMessage.trim() || playersList.length === 0}
+            onClick={handleInitiateSend}
+            className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-40 text-white font-black text-base sm:text-lg rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer min-h-[48px]"
+          >
+            <Send className="w-5 h-5 text-white" />
+            <span>
+              {isSending
+                ? 'ĐANG PHÁT THÔNG BÁO...'
+                : selectedTarget === ALL_TARGET
+                ? `📢 PHÁT CẢNH BÁO CHO ${playersList.length} HỌC SINH ➔`
+                : '🎯 PHÁT CẢNH BÁO CHO HỌC SINH NÀY ➔'}
+            </span>
+          </button>
+        </div>
       </div>
+
+      {/* Confirmation Modal for Sending to ALL */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-purple-500/50 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 text-center relative overflow-hidden">
+            <button
+              disabled={isSending}
+              onClick={() => setShowConfirmModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-purple-500/20 border border-purple-400/50 flex items-center justify-center text-purple-300">
+              <Megaphone className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-lg font-black text-white">Xác Nhận Phát Cảnh Báo Cả Lớp</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Bạn sắp phát thông báo này tới toàn bộ <strong className="text-white">{playersList.length} học sinh</strong> trong phòng.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                disabled={isSending}
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-extrabold text-xs rounded-xl transition-colors cursor-pointer min-h-[44px]"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                disabled={isSending}
+                onClick={executeSend}
+                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-black text-xs rounded-xl shadow-lg shadow-purple-600/30 transition-transform active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 min-h-[44px]"
+              >
+                <Send className="w-4 h-4" />
+                Xác Nhận Phát
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+/* Sub-component: AlertPresetCard */
+const AlertPresetCard: React.FC<{
+  preset: AlertPreset;
+  isSelected: boolean;
+  isDisabled: boolean;
+  onSelect: () => void;
+}> = React.memo(({ preset, isSelected, isDisabled, onSelect }) => {
+  return (
+    <button
+      type="button"
+      disabled={isDisabled}
+      aria-pressed={isSelected}
+      onClick={onSelect}
+      className={`p-2.5 rounded-xl border text-left transition-all flex items-start gap-2 cursor-pointer ${
+        preset.color
+      } ${
+        isSelected
+          ? 'ring-2 ring-purple-400 border-purple-400 bg-purple-600/30 scale-[1.01]'
+          : 'opacity-90'
+      }`}
+    >
+      <span className="text-lg shrink-0 mt-0.5">{preset.icon}</span>
+      <div className="min-w-0">
+        <span className="font-extrabold text-xs block text-white truncate">
+          {preset.title}
+        </span>
+        <span className="text-[11px] opacity-80 leading-tight block line-clamp-2">
+          {preset.message}
+        </span>
+      </div>
+    </button>
+  );
+});
+
+AlertPresetCard.displayName = 'AlertPresetCard';

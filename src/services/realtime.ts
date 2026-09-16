@@ -76,9 +76,32 @@ export class RealtimeService {
           if (data?.type === 'JOIN_PLAYER') {
             const currentRoom = this.getRoom(roomCode);
             if (currentRoom) {
+              const incomingPlayer: Player = data.player;
+              const existingPlayer = Object.values(currentRoom.players).find(
+                (p) =>
+                  p.id === incomingPlayer.id ||
+                  (p.name.trim().toLowerCase() === incomingPlayer.name.trim().toLowerCase() && p.name.trim() !== '') ||
+                  (p.studentCode && incomingPlayer.studentCode && p.studentCode === incomingPlayer.studentCode)
+              );
+
+              let finalPlayer: Player;
+              if (existingPlayer) {
+                // Restore existing player progress without resetting score or question index
+                finalPlayer = {
+                  ...existingPlayer,
+                  isTabActive: true,
+                  chibi: incomingPlayer.chibi || existingPlayer.chibi,
+                };
+              } else {
+                finalPlayer = {
+                  ...incomingPlayer,
+                  isTabActive: true,
+                };
+              }
+
               const updatedRoom: GameRoom = {
                 ...currentRoom,
-                players: { ...currentRoom.players, [data.player.id]: data.player },
+                players: { ...currentRoom.players, [finalPlayer.id]: finalPlayer },
                 updatedAt: Date.now(),
               };
               this.saveAndBroadcast(updatedRoom);
@@ -94,6 +117,8 @@ export class RealtimeService {
             this.executePowerUp(roomCode, data.attackerId, data.targetId, data.powerUpType);
           } else if (data?.type === 'TAB_STATUS_UPDATE') {
             this.updatePlayerTabStatus(roomCode, data.playerId, data.isTabActive, data.tabSwitchCount);
+          } else if (data?.type === 'REMOVE_PLAYER') {
+            this.removePlayer(roomCode, data.playerId);
           }
         });
 
@@ -141,7 +166,25 @@ export class RealtimeService {
     }
 
     if (room) {
-      const updatedPlayers = { ...room.players, [player.id]: player };
+      const existingPlayer = Object.values(room.players).find(
+        (p) =>
+          p.id === player.id ||
+          (p.name.trim().toLowerCase() === player.name.trim().toLowerCase() && p.name.trim() !== '') ||
+          (p.studentCode && player.studentCode && p.studentCode === player.studentCode)
+      );
+
+      let playerToUse: Player;
+      if (existingPlayer) {
+        playerToUse = {
+          ...existingPlayer,
+          isTabActive: true,
+          chibi: player.chibi || existingPlayer.chibi,
+        };
+      } else {
+        playerToUse = player;
+      }
+
+      const updatedPlayers = { ...room.players, [playerToUse.id]: playerToUse };
       room = { ...room, players: updatedPlayers, updatedAt: Date.now() };
       this.saveAndBroadcast(room);
       return room;
@@ -611,6 +654,32 @@ export class RealtimeService {
     }
 
     return { success: true, blocked, stolenPoints, mysteryBonus };
+  }
+
+  // Teacher: Remove / Kick player from room
+  public removePlayer(roomCode: string, playerId: string): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room || !room.players[playerId]) return null;
+
+    const { [playerId]: removed, ...remainingPlayers } = room.players;
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      players: remainingPlayers,
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
+    this.broadcastToPeerClients(updatedRoom);
+
+    if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'REMOVE_PLAYER',
+        playerId,
+      });
+    }
+
+    return updatedRoom;
   }
 
   // Freeze player (e.g. for rapid guessing / anti-spam violation or freeze power-up)

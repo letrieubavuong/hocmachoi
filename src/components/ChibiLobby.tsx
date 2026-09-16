@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { GameRoom, Player } from '../types';
 import { ChibiAvatar } from './ChibiAvatar';
 import { QRCodeModal } from './QRCodeModal';
-import { Play, QrCode, Volume2, VolumeX, Users, Sparkles, Shield, Flame } from 'lucide-react';
+import { Play, QrCode, Volume2, VolumeX, Users, Sparkles, Shield, Flame, UserX } from 'lucide-react';
 import { soundManager } from '../services/audio';
 
 interface ChibiLobbyProps {
@@ -10,6 +10,7 @@ interface ChibiLobbyProps {
   isHost: boolean;
   currentPlayerId?: string;
   onStartGame: () => void;
+  onRemovePlayer?: (playerId: string) => void;
 }
 
 export const ChibiLobby: React.FC<ChibiLobbyProps> = ({
@@ -17,6 +18,7 @@ export const ChibiLobby: React.FC<ChibiLobbyProps> = ({
   isHost,
   currentPlayerId,
   onStartGame,
+  onRemovePlayer,
 }) => {
   const [showQR, setShowQR] = useState(false);
   const [isMuted, setIsMuted] = useState(soundManager.getMuted());
@@ -127,6 +129,22 @@ export const ChibiLobby: React.FC<ChibiLobbyProps> = ({
                     <span className="mt-0.5 px-1.5 py-0.5 bg-amber-500/20 text-yellow-300 border border-amber-500/40 rounded-md text-[9px] font-extrabold flex items-center gap-0.5">
                       ⚠️ Rời tab: {player.tabSwitchCount}
                     </span>
+                  )}
+
+                  {isHost && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Bạn có chắc chắn muốn xóa học sinh "${player.name}" khỏi phòng không?`)) {
+                          onRemovePlayer?.(player.id);
+                        }
+                      }}
+                      className="mt-1.5 px-2 py-0.5 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors shadow-md cursor-pointer"
+                      title={`Xóa học sinh ${player.name} khỏi phòng`}
+                    >
+                      <UserX className="w-3 h-3" />
+                      <span>Xóa</span>
+                    </button>
                   )}
                 </div>
               );

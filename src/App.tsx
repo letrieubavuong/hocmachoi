@@ -22,6 +22,7 @@ import { TeacherAuthPanel } from './components/TeacherAuthPanel';
 
 import { getRankTier } from './data/rankAssets';
 import { shuffleStudentQuestions } from './utils/shuffle';
+import { calculateAnswerScore } from './utils/scoring';
 
 import {
   Sparkles,
@@ -41,6 +42,7 @@ import {
   Trophy,
   LogOut,
   UserCheck,
+  UserX,
 } from 'lucide-react';
 
 const STORAGE_CUSTOM_QUIZZES = 'chibi_quiz_custom_quizzes_v1';
@@ -92,6 +94,9 @@ export function App() {
   const [giftTargetStudentId, setGiftTargetStudentId] = useState('ALL');
   const [selectedInquiryStudent, setSelectedInquiryStudent] = useState<Player | null>(null);
 
+  // Kicked by Teacher modal state
+  const [showKickedModal, setShowKickedModal] = useState(false);
+
   // Student: Anti-Cheat Tab Switch & Window Focus Monitor
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [showTabWarningToast, setShowTabWarningToast] = useState(false);
@@ -105,32 +110,23 @@ export function App() {
       if (isHiddenState) return;
       isHiddenState = true;
 
-      setTabSwitchCount((prev) => {
-        const nextCount = prev + 1;
-        realtime.updatePlayerTabStatus(room.roomCode, player.id, false, nextCount);
-        return nextCount;
-      });
-
+      const newCount = tabSwitchCount + 1;
+      setTabSwitchCount(newCount);
       setShowTabWarningToast(true);
-      setTimeout(() => setShowTabWarningToast(false), 4500);
+
+      realtime.updatePlayerTabStatus(room.roomCode, player.id, false, newCount);
+
+      setTimeout(() => setShowTabWarningToast(false), 6000);
     };
 
     const handleTabReturn = () => {
-      if (!isHiddenState) return;
       isHiddenState = false;
-
-      setTabSwitchCount((currentCount) => {
-        realtime.updatePlayerTabStatus(room.roomCode, player.id, true, currentCount);
-        return currentCount;
-      });
+      realtime.updatePlayerTabStatus(room.roomCode, player.id, true, tabSwitchCount);
     };
 
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        handleTabLeave();
-      } else {
-        handleTabReturn();
-      }
+      if (document.hidden) handleTabLeave();
+      else handleTabReturn();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -142,7 +138,7 @@ export function App() {
       window.removeEventListener('blur', handleTabLeave);
       window.removeEventListener('focus', handleTabReturn);
     };
-  }, [role, room?.roomCode, player?.id]);
+  }, [role, room?.roomCode, player?.id, tabSwitchCount]);
 
   // Restore active Teacher Host or Student session after F5 page refresh
   useEffect(() => {
@@ -198,22 +194,47 @@ export function App() {
     const unsubscribe = realtime.subscribe(room.roomCode, (updatedRoom) => {
       setRoom(updatedRoom);
 
-      // Keep local player state synced
-      if (player?.id && updatedRoom.players[player.id]) {
-        const syncedPlayer = updatedRoom.players[player.id];
-        setPlayer(syncedPlayer);
+      // Keep local player state synced (match by player.id or name fallback for restored players)
+      if (role === 'PLAYER' && player) {
+        const syncedPlayer =
+          updatedRoom.players[player.id] ||
+          Object.values(updatedRoom.players).find(
+            (p) => p.name.trim().toLowerCase() === player.name.trim().toLowerCase() && p.name.trim() !== ''
+          );
 
-        // Auto trigger power-up card modal ONLY if THIS player unlocked a power-up
-        if (syncedPlayer.unlockedPowerUp && updatedRoom.phase === 'QUESTION') {
-          setShowPowerUpModal(true);
-        } else if (!syncedPlayer.unlockedPowerUp) {
-          setShowPowerUpModal(false);
+        if (syncedPlayer) {
+          setPlayer(syncedPlayer);
+          localStorage.setItem(
+            STORAGE_ACTIVE_PLAYER_SESSION,
+            JSON.stringify({ roomCode: updatedRoom.roomCode, player: syncedPlayer })
+          );
+
+          // Auto trigger power-up card modal ONLY if THIS player unlocked a power-up
+          if (syncedPlayer.unlockedPowerUp && updatedRoom.phase === 'QUESTION') {
+            setShowPowerUpModal(true);
+          } else if (!syncedPlayer.unlockedPowerUp) {
+            setShowPowerUpModal(false);
+          }
+        } else {
+          // Player was removed / kicked by Teacher!
+          localStorage.removeItem(STORAGE_ACTIVE_PLAYER_SESSION);
+          setPlayer(null);
+          setRoom(null);
+          setRole(null);
+          setShowKickedModal(true);
         }
       }
     });
 
     return () => unsubscribe();
-  }, [room?.roomCode, player?.id]);
+  }, [room?.roomCode, player?.id, player?.name, role]);
+
+  // Host: Remove / Kick Player from Room
+  const handleRemovePlayer = (playerId: string) => {
+    if (!room) return;
+    const updatedRoom = realtime.removePlayer(room.roomCode, playerId);
+    if (updatedRoom) setRoom(updatedRoom);
+  };
 
   // Host: Create Room
   const handleCreateRoom = (quizToUse: Quiz) => {
@@ -230,29 +251,55 @@ export function App() {
     const code = roomCodeInput.trim();
     if (!code) return;
 
-    const studentCode = `HS-${Math.floor(1000 + Math.random() * 9000)}`;
-    const playerId = `player-${studentCode.toLowerCase()}-${Math.random().toString(36).substr(2, 6)}`;
-    const newPlayer: Player = {
-      id: playerId,
-      studentCode,
-      name,
-      chibi,
-      score: 0,
-      streak: 0,
-      shieldActive: false,
-      shieldCount: 0,
-      isReady: true,
-      joinedAt: Date.now(),
-    };
+    // Check if room already exists locally to restore existing player stats
+    const existingRoom = realtime.getRoom(code);
+    const existingPlayer = existingRoom
+      ? Object.values(existingRoom.players).find(
+          (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase() && p.name.trim() !== ''
+        )
+      : undefined;
 
-    setPlayer(newPlayer);
+    let playerToJoin: Player;
+    if (existingPlayer) {
+      playerToJoin = {
+        ...existingPlayer,
+        isTabActive: true,
+        chibi: chibi || existingPlayer.chibi,
+      };
+    } else {
+      const studentCode = `HS-${Math.floor(1000 + Math.random() * 9000)}`;
+      const playerId = `player-${studentCode.toLowerCase()}-${Math.random().toString(36).substr(2, 6)}`;
+      playerToJoin = {
+        id: playerId,
+        studentCode,
+        name,
+        chibi,
+        score: 0,
+        streak: 0,
+        shieldActive: false,
+        shieldCount: 0,
+        isReady: true,
+        joinedAt: Date.now(),
+      };
+    }
+
+    setPlayer(playerToJoin);
     setShowCustomizer(false);
 
-    const updatedRoom = realtime.joinRoom(code, newPlayer);
+    const updatedRoom = realtime.joinRoom(code, playerToJoin);
     if (updatedRoom) {
       setRoom(updatedRoom);
+      const restored =
+        updatedRoom.players[playerToJoin.id] ||
+        Object.values(updatedRoom.players).find(
+          (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase() && p.name.trim() !== ''
+        );
+      if (restored) {
+        setPlayer(restored);
+        playerToJoin = restored;
+      }
     }
-    localStorage.setItem(STORAGE_ACTIVE_PLAYER_SESSION, JSON.stringify({ roomCode: code, player: newPlayer }));
+    localStorage.setItem(STORAGE_ACTIVE_PLAYER_SESSION, JSON.stringify({ roomCode: code, player: playerToJoin }));
     soundManager.playBGM();
   };
 
@@ -305,13 +352,14 @@ export function App() {
     const currentQ = questionsList[player.currentQuestionIndex || 0];
     let scoreToAdd = 0;
     if (isCorrect && currentQ) {
-      let speedBonus = 0;
-      if (timeSpentSec <= 3) speedBonus = 150;
-      else if (timeSpentSec <= 6) speedBonus = 100;
-      else if (timeSpentSec <= 10) speedBonus = 50;
-
-      const streakMultiplier = player.streak >= 2 ? 1.5 : 1;
-      scoreToAdd = Math.round(((currentQ.points || 100) + speedBonus) * streakMultiplier);
+      const scoreResult = calculateAnswerScore({
+        basePoints: currentQ.points || 100,
+        timeSpentSec,
+        isCorrect: true,
+        streak: player.streak,
+        doublePointsActive: false, // Let realtime.updatePlayerStats handle doublePointsActive consumption
+      });
+      scoreToAdd = scoreResult.totalEarned;
     }
 
     const updatedRoom = realtime.updatePlayerStats(room.roomCode, player.id, scoreToAdd, isCorrect);
@@ -716,7 +764,12 @@ export function App() {
             </div>
 
             <div className="w-full max-w-4xl">
-              <LiveLeaderboard players={room.players} attacks={room.attacks} isFinal={false} />
+              <LiveLeaderboard
+                players={room.players}
+                attacks={room.attacks}
+                isFinal={false}
+                totalQuestions={room.quiz?.questions?.length || 5}
+              />
             </div>
           </div>
         );
@@ -791,6 +844,7 @@ export function App() {
           players={room.players}
           attacks={room.attacks}
           isFinal={room.phase === 'FINISHED'}
+          totalQuestions={room.quiz?.questions?.length || 5}
         />
         <button
           onClick={handleResetHome}
@@ -825,6 +879,7 @@ export function App() {
             room={room}
             isHost={true}
             onStartGame={handleStartGame}
+            onRemovePlayer={handleRemovePlayer}
           />
           <TeacherAlertModal
             isOpen={showTeacherAlertModal}
@@ -1113,6 +1168,19 @@ export function App() {
                         >
                           📢 Cảnh báo
                         </button>
+
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Bạn có chắc chắn muốn xóa học sinh "${p.name}" (${p.studentCode || p.id}) khỏi phòng không?`)) {
+                              handleRemovePlayer(p.id);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold rounded-xl border border-rose-500/40 transition-all cursor-pointer shrink-0 flex items-center gap-1"
+                          title={`Xóa học sinh ${p.name} khỏi phòng`}
+                        >
+                          <UserX className="w-3.5 h-3.5" />
+                          <span>Xóa</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -1161,11 +1229,13 @@ export function App() {
           attacks={room.attacks}
           isFinal={room.phase === 'FINISHED'}
           isHost={true}
+          totalQuestions={room.quiz?.questions?.length || 5}
           onNextQuestion={handleNextQuestion}
           onOpenTeacherAlert={() => {
             setAlertTargetStudentId('ALL');
             setShowTeacherAlertModal(true);
           }}
+          onRemovePlayer={handleRemovePlayer}
         />
         <button
           onClick={handleResetHome}
@@ -1193,5 +1263,32 @@ export function App() {
     );
   }
 
-  return null;
+  return (
+    <>
+      {showKickedModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-rose-500 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-2xl animate-fade-in">
+            <div className="w-16 h-16 rounded-full bg-rose-600/20 border-2 border-rose-500 flex items-center justify-center text-3xl mx-auto">
+              🚫
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-2xl font-black text-rose-400">Bạn đã bị Giáo viên xóa khỏi phòng!</h3>
+              <p className="text-xs text-slate-300 font-medium">
+                Giáo viên đã mời bạn ra khỏi phòng bài thi. Vui lòng liên hệ Giáo viên nếu có nhầm lẫn.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setShowKickedModal(false);
+                handleResetHome();
+              }}
+              className="w-full py-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-2xl text-base shadow-lg transition-transform active:scale-95 cursor-pointer"
+            >
+              Trở Về Trang Chủ
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

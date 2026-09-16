@@ -3,18 +3,20 @@ import { TeacherAccount, TeacherAccountStatus } from '../types';
 const STORAGE_TEACHER_ACCOUNTS = 'chibi_quiz_teacher_accounts_v1';
 const STORAGE_CURRENT_TEACHER = 'chibi_quiz_current_teacher_v1';
 
-// Pre-seeded sample approved account for easy testing
-const INITIAL_TEACHER_ACCOUNTS: TeacherAccount[] = [
-  {
-    id: 'teacher-sample-1',
-    email: 'giaovien@gmail.com',
-    password: '123',
-    fullName: 'Thầy Vương (Giáo viên mẫu)',
-    schoolName: 'THPT Chuyên',
-    status: 'APPROVED',
-    createdAt: Date.now() - 86400000 * 7,
-  },
-];
+// Pre-seeded sample approved account only in DEV environment
+const INITIAL_TEACHER_ACCOUNTS: TeacherAccount[] = import.meta.env.DEV
+  ? [
+      {
+        id: 'teacher-sample-1',
+        email: 'giaovien@gmail.com',
+        password: '123',
+        fullName: 'Thầy Vương (Giáo viên mẫu)',
+        schoolName: 'THPT Chuyên',
+        status: 'APPROVED',
+        createdAt: Date.now() - 86400000 * 7,
+      },
+    ]
+  : [];
 
 export class TeacherAuthService {
   // Get all registered teacher accounts
@@ -72,7 +74,8 @@ export class TeacherAuthService {
 
     return {
       success: true,
-      message: '🎉 Đăng ký thành công! Tài khoản của bạn đang ở trạng thái CHỜ ADMIN PHÊ DUYỆT. Vui lòng liên hệ Admin để được duyệt quyền tạo sảnh thi.',
+      message:
+        '🎉 Đăng ký thành công! Tài khoản của bạn đang ở trạng thái CHỜ ADMIN PHÊ DUYỆT. Vui lòng liên hệ Admin để được duyệt quyền tạo sảnh thi.',
       account: newAccount,
     };
   }
@@ -87,13 +90,14 @@ export class TeacherAuthService {
     const account = accounts.find((a) => a.email.toLowerCase() === cleanEmail && a.password === pass);
 
     if (!account) {
-      return { success: false, message: 'Email hoặc Mật khẩu không chính xác!' };
+      return { success: false, message: 'Mật khẩu hoặc thông tin tài khoản không chính xác!' };
     }
 
     if (account.status === 'PENDING') {
       return {
         success: false,
-        message: '⚠️ Tài khoản của bạn đang CHỜ ADMIN PHÊ DUYỆT. Vui lòng liên hệ Admin để được cấp quyền tạo sảnh thi!',
+        message:
+          '⚠️ Tài khoản của bạn đang CHỜ ADMIN PHÊ DUYỆT. Vui lòng liên hệ Admin để được cấp quyền tạo sảnh thi!',
       };
     }
 
@@ -145,7 +149,9 @@ export class TeacherAuthService {
   // Admin: Approve account
   public static approveAccount(id: string): TeacherAccount[] {
     const accounts = this.getAccounts();
-    const updated = accounts.map((a) => (a.id === id ? { ...a, status: 'APPROVED' as TeacherAccountStatus } : a));
+    const updated = accounts.map((a) =>
+      a.id === id ? { ...a, status: 'APPROVED' as TeacherAccountStatus } : a
+    );
     this.saveAccounts(updated);
     return updated;
   }
@@ -153,7 +159,9 @@ export class TeacherAuthService {
   // Admin: Reject account
   public static rejectAccount(id: string): TeacherAccount[] {
     const accounts = this.getAccounts();
-    const updated = accounts.map((a) => (a.id === id ? { ...a, status: 'REJECTED' as TeacherAccountStatus } : a));
+    const updated = accounts.map((a) =>
+      a.id === id ? { ...a, status: 'REJECTED' as TeacherAccountStatus } : a
+    );
     this.saveAccounts(updated);
     return updated;
   }
