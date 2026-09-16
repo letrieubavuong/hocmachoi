@@ -1,4 +1,5 @@
 import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent } from '../types';
+import { PowerUpEngine } from './powerUpEngine';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
@@ -277,66 +278,65 @@ export class RealtimeService {
     return updatedRoom;
   }
 
-  // Update Player Stats with 10 Epic Power-Ups!
+  // Update Player Stats with PowerUp Engine Evaluation
   public updatePlayerStats(
     roomCode: string,
     playerId: string,
     deltaScore: number,
-    isCorrect: boolean
+    isCorrect: boolean,
+    timeSpentSec: number = 10
   ): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
 
     const player = room.players[playerId];
-    const newStreak = isCorrect ? player.streak + 1 : 0;
+    const isHomework = room.quiz?.mode === 'HOMEWORK';
+
+    // 1. Evaluate score, streak, bomb, rocket, streak-guard using PowerUpEngine
+    const { finalDeltaScore, newStreak } = PowerUpEngine.evaluateAnswerModifiers({
+      player,
+      baseDeltaScore: deltaScore,
+      isCorrect,
+      timeSpentSec,
+    });
 
     let newShieldActive = player.shieldActive;
     let newShieldCount = player.shieldCount;
-    let unlockedPowerUp: PowerUpType | null = player.unlockedPowerUp || null;
+    let unlockedPowerUp: PowerUpType | null = null;
 
-    // Rich Power-up rewards algorithm
-    if (newStreak === 2) {
-      const tier1Options: PowerUpType[] = ['SHIELD', 'DOUBLE_POINTS', 'ORACLE_5050', 'REFLECT_SHIELD'];
-      unlockedPowerUp = tier1Options[Math.floor(Math.random() * tier1Options.length)];
-      if (unlockedPowerUp === 'SHIELD' && !newShieldActive) {
+    // 2. Award new power-up reward if streak milestone reached (Streak >= 2)
+    if (newStreak >= 2) {
+      const playerList = Object.values(room.players).sort((a, b) => b.score - a.score);
+      const rankIndex = playerList.findIndex((p) => p.id === playerId);
+      const playerRank = rankIndex !== -1 ? rankIndex + 1 : playerList.length;
+
+      unlockedPowerUp = PowerUpEngine.getRandomRewardForPlayer(
+        newStreak,
+        playerRank,
+        playerList.length,
+        isHomework
+      );
+
+      if (unlockedPowerUp === 'SHIELD') {
         newShieldActive = true;
         newShieldCount += 1;
       }
-    } else if (newStreak >= 3) {
-      const tier2Options: PowerUpType[] = [
-        'ATTACK',
-        'FREEZE',
-        'MYSTERY_BOX',
-        'BOMB',
-        'ROCKET_BOOST',
-        'REFLECT_SHIELD',
-      ];
-      unlockedPowerUp = tier2Options[Math.floor(Math.random() * tier2Options.length)];
     }
 
-    // Apply double points multiplier if active
-    let finalDeltaScore = deltaScore;
-    let doublePointsActive = player.doublePointsActive;
-    if (player.doublePointsActive && isCorrect) {
-      finalDeltaScore = deltaScore * 2;
-      doublePointsActive = false;
-    }
-
-    // Reset single-use powerups after question attempt
-    let oracle5050Active = false;
-    let isFrozen = false;
-    let isBombed = false;
-
+    // 3. Reset consumed single-use buffs
     const updatedPlayer: Player = {
       ...player,
       score: Math.max(0, player.score + finalDeltaScore),
       streak: newStreak,
       shieldActive: newShieldActive,
       shieldCount: newShieldCount,
-      doublePointsActive,
-      oracle5050Active,
-      isFrozen,
-      isBombed,
+      doublePointsActive: false,
+      oracle5050Active: false,
+      rocketBoostActive: false,
+      streakGuardActive: false,
+      isFrozen: false,
+      freezeUntil: undefined,
+      isBombed: false,
       unlockedPowerUp,
       totalAnswered: (player.totalAnswered || 0) + 1,
       correctCount: (player.correctCount || 0) + (isCorrect ? 1 : 0),
@@ -511,8 +511,10 @@ export class RealtimeService {
       let doublePointsActive = p.doublePointsActive;
       let oracle5050Active = p.oracle5050Active;
       let reflectShieldActive = p.reflectShieldActive;
+      let rocketBoostActive = p.rocketBoostActive;
+      let streakGuardActive = p.streakGuardActive;
 
-      if (powerUpType === 'MYSTERY_BOX' || powerUpType === 'ROCKET_BOOST') {
+      if (powerUpType === 'MYSTERY_BOX') {
         score += 300;
       } else if (powerUpType === 'SHIELD') {
         shieldActive = true;
@@ -523,6 +525,10 @@ export class RealtimeService {
         oracle5050Active = true;
       } else if (powerUpType === 'REFLECT_SHIELD') {
         reflectShieldActive = true;
+      } else if (powerUpType === 'ROCKET_BOOST') {
+        rocketBoostActive = true;
+      } else if (powerUpType === 'STREAK_GUARD') {
+        streakGuardActive = true;
       }
 
       return {
@@ -533,6 +539,8 @@ export class RealtimeService {
         doublePointsActive,
         oracle5050Active,
         reflectShieldActive,
+        rocketBoostActive,
+        streakGuardActive,
         unlockedPowerUp: powerUpType,
       };
     };
@@ -577,16 +585,24 @@ export class RealtimeService {
     let updatedAttacker = { ...attacker, unlockedPowerUp: null };
     let updatedTarget = { ...target };
 
-    // Check Shield / Reflect Shield on Target
+    // Check Shield / Reflect Shield on Target for Offensive Attacks
     if (target.id !== attacker.id && (target.reflectShieldActive || target.shieldActive)) {
-      if (target.reflectShieldActive && powerUpType === 'ATTACK') {
-        // REFLECT SHIELD: Damage bounces back onto Attacker!
+      if (target.reflectShieldActive && PowerUpEngine.isOffensivePowerUp(powerUpType)) {
+        // REFLECT SHIELD: Bounces offensive attack back to Attacker!
         blocked = true;
-        stolenPoints = Math.max(30, Math.round(attacker.score * 0.2));
-        updatedAttacker.score = Math.max(0, attacker.score - stolenPoints);
-        updatedTarget.score += stolenPoints;
         updatedTarget.reflectShieldActive = false;
-      } else if (target.shieldActive) {
+
+        if (powerUpType === 'ATTACK') {
+          stolenPoints = Math.max(30, Math.round(attacker.score * 0.2));
+          updatedAttacker.score = Math.max(0, attacker.score - stolenPoints);
+          updatedTarget.score += stolenPoints;
+        } else if (powerUpType === 'FREEZE') {
+          updatedAttacker.isFrozen = true;
+          updatedAttacker.freezeUntil = Date.now() + 10000;
+        } else if (powerUpType === 'BOMB') {
+          updatedAttacker.isBombed = true;
+        }
+      } else if (target.shieldActive && PowerUpEngine.isOffensivePowerUp(powerUpType)) {
         // STANDARD SHIELD: Blocks attack completely
         blocked = true;
         updatedTarget.shieldActive = false;
@@ -601,6 +617,7 @@ export class RealtimeService {
         updatedAttacker.score += stolenPoints;
       } else if (powerUpType === 'FREEZE') {
         updatedTarget.isFrozen = true;
+        updatedTarget.freezeUntil = Date.now() + 10000;
       } else if (powerUpType === 'BOMB') {
         updatedTarget.isBombed = true;
       } else if (powerUpType === 'DOUBLE_POINTS') {
@@ -609,8 +626,9 @@ export class RealtimeService {
         mysteryBonus = Math.floor(10 + Math.random() * 41) * 10; // +100 to +500 random points
         updatedAttacker.score += mysteryBonus;
       } else if (powerUpType === 'ROCKET_BOOST') {
-        mysteryBonus = 300;
-        updatedAttacker.score += 300;
+        updatedAttacker.rocketBoostActive = true;
+      } else if (powerUpType === 'STREAK_GUARD') {
+        updatedAttacker.streakGuardActive = true;
       } else if (powerUpType === 'ORACLE_5050') {
         updatedAttacker.oracle5050Active = true;
       } else if (powerUpType === 'REFLECT_SHIELD') {

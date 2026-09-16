@@ -18,7 +18,8 @@ export type PowerUpType =
   | 'BOMB' 
   | 'ORACLE_5050' 
   | 'ROCKET_BOOST' 
-  | 'REFLECT_SHIELD';
+  | 'REFLECT_SHIELD'
+  | 'STREAK_GUARD';
 
 export type QuestionType = 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
 
@@ -43,6 +44,7 @@ export interface Quiz {
   subject?: string;
   questions: Question[];
   createdAt?: number;
+  mode?: 'LIVE' | 'HOMEWORK';
 }
 
 export type GamePhase = 'LOBBY' | 'QUESTION' | 'RESULT' | 'ATTACK' | 'LEADERBOARD' | 'FINISHED';
@@ -59,11 +61,15 @@ export interface Player {
   reflectShieldActive?: boolean;
   doublePointsActive?: boolean;
   oracle5050Active?: boolean;
+  rocketBoostActive?: boolean;
+  streakGuardActive?: boolean;
   isFrozen?: boolean;
+  freezeUntil?: number;
   freezeReason?: string;
   rapidGuessCount?: number;
   isBombed?: boolean;
   unlockedPowerUp?: PowerUpType | null;
+  processedEventIds?: string[];
   lastAttackNotice?: {
     attackerName: string;
     blocked: boolean;

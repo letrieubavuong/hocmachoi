@@ -4,7 +4,8 @@ import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
 import { getRankTier } from '../data/rankAssets';
 import { calculateAnswerScore, evaluateShortAnswer, ScoreResult } from '../utils/scoring';
-import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Send, Eye, Snowflake, Sparkles, Bomb, HelpCircle, AlertTriangle } from 'lucide-react';
+import { PowerUpEngine } from '../services/powerUpEngine';
+import { Flame, Shield, Clock, CheckCircle2, XCircle, Zap, Send, Eye, Snowflake, Sparkles, Bomb, HelpCircle, AlertTriangle, Rocket } from 'lucide-react';
 
 const AUTO_NEXT_DELAY_MS = 1500;
 
@@ -75,14 +76,13 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return true;
   }, [question, qType]);
 
-  // 2. 50:50 Oracle power-up: compute 2 wrong indices to hide
+  // 2. 50:50 Oracle power-up: compute 2 wrong indices to hide deterministically
   const disabled5050Indices = useMemo(() => {
     if (!player?.oracle5050Active || qType !== 'MULTIPLE_CHOICE' || question.correctIndex === undefined) {
       return [];
     }
-    const wrong = [0, 1, 2, 3].filter((i) => i !== question.correctIndex);
-    return wrong.slice(0, 2);
-  }, [player?.oracle5050Active, question.id, question.correctIndex, qType]);
+    return PowerUpEngine.getDeterministic5050Indices(question.id, player?.id || 'guest', question.correctIndex);
+  }, [player?.oracle5050Active, player?.id, question.id, question.correctIndex, qType]);
 
   // Reset states strictly when question.id or questionNumber changes
   useEffect(() => {
@@ -114,7 +114,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     };
   }, []);
 
-  // Freeze timer handling
+  // Timestamp-based Freeze timer handling (F5 resilient)
   useEffect(() => {
     if (!player?.isFrozen) {
       setFreezeSeconds(10);
@@ -122,23 +122,28 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       return;
     }
 
-    setFreezeSeconds(10);
+    const calcRemaining = () => {
+      if (player.freezeUntil) {
+        return Math.max(0, Math.ceil((player.freezeUntil - Date.now()) / 1000));
+      }
+      return 10;
+    };
+
+    setFreezeSeconds(calcRemaining());
     const interval = setInterval(() => {
-      setFreezeSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          if (onUnfreeze && !unfreezeFiredRef.current) {
-            unfreezeFiredRef.current = true;
-            onUnfreeze();
-          }
-          return 0;
+      const rem = calcRemaining();
+      setFreezeSeconds(rem);
+      if (rem <= 0) {
+        clearInterval(interval);
+        if (onUnfreeze && !unfreezeFiredRef.current) {
+          unfreezeFiredRef.current = true;
+          onUnfreeze();
         }
-        return prev - 1;
-      });
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [player?.isFrozen, onUnfreeze]);
+  }, [player?.isFrozen, player?.freezeUntil, onUnfreeze]);
 
   // Auto Next Trigger
   const triggerAutoNext = () => {
@@ -637,7 +642,14 @@ ElapsedTimer.displayName = 'ElapsedTimer';
 
 // Sub-component: Power-Up Ribbon Display
 const PowerUpRibbon: React.FC<{ player?: Player; qType: string }> = React.memo(({ player, qType }) => {
-  if (!player?.doublePointsActive && !player?.oracle5050Active && !player?.reflectShieldActive && !player?.isBombed) {
+  if (
+    !player?.doublePointsActive &&
+    !player?.oracle5050Active &&
+    !player?.reflectShieldActive &&
+    !player?.rocketBoostActive &&
+    !player?.streakGuardActive &&
+    !player?.isBombed
+  ) {
     return null;
   }
 
@@ -646,7 +658,7 @@ const PowerUpRibbon: React.FC<{ player?: Player; qType: string }> = React.memo((
       {player?.doublePointsActive && (
         <div className="px-3.5 py-1.5 bg-amber-500/20 border border-amber-500/50 text-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
           <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>⚡ THẺ NHÂN 2 ĐIỂM SỐ ĐANG KÍCH HOẠT (X2 PT CÂU NÀY)!</span>
+          <span>⚡ THẺ NHÂN 2 ĐIỂM (X2 PT CÂU NÀY)!</span>
         </div>
       )}
       {player?.oracle5050Active && qType === 'MULTIPLE_CHOICE' && (
@@ -655,16 +667,28 @@ const PowerUpRibbon: React.FC<{ player?: Player; qType: string }> = React.memo((
           <span>👁️ MẮT THẦN 50:50 ĐÃ LOẠI BỎ 2 ĐÁP ÁN SAI!</span>
         </div>
       )}
-      {player?.reflectShieldActive && (
+      {player?.rocketBoostActive && (
         <div className="px-3.5 py-1.5 bg-purple-500/20 border border-purple-500/50 text-purple-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
-          <Sparkles className="w-4 h-4 text-purple-300 shrink-0" />
+          <Rocket className="w-4 h-4 text-purple-300 shrink-0" />
+          <span>🚀 TĂNG TỐC TÊN LỬA (ĐÚNG &lt;5S NHẬN +200Đ)!</span>
+        </div>
+      )}
+      {player?.streakGuardActive && (
+        <div className="px-3.5 py-1.5 bg-rose-500/20 border border-rose-500/50 text-rose-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+          <Flame className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>🔥 BẢO TOÀN CHUỖI THẮNG ĐANG KÍCH HOẠT!</span>
+        </div>
+      )}
+      {player?.reflectShieldActive && (
+        <div className="px-3.5 py-1.5 bg-amber-500/20 border border-amber-500/50 text-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
+          <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
           <span>👑 KHIÊN PHẢN ĐÒN ĐANG BẢO VỆ BẠN!</span>
         </div>
       )}
       {player?.isBombed && (
         <div className="px-3.5 py-1.5 bg-orange-500/20 border border-orange-500/50 text-orange-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md">
-          <Bomb className="w-4 h-4 text-orange-400 shrink-0" />
-          <span>💣 BẠN ĐÃ BỊ ĐÍNH BOM HẸN GIỜ!</span>
+          <Bomb className="w-4 h-4 text-orange-400 shrink-0 animate-bounce" />
+          <span>💣 BỊ DÍNH BOM! ĐÚNG = PHÁ BOM (+50Đ) | SAI = NỔ (-150Đ)</span>
         </div>
       )}
     </div>

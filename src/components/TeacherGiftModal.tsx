@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Player, PowerUpType } from '../types';
-import { Gift, Zap, Shield, Eye, Rocket, Sparkles, Send, Users, Search, X, AlertCircle } from 'lucide-react';
+import { Gift, Zap, Shield, Eye, Rocket, Sparkles, Send, Users, Search, X, AlertCircle, Flame } from 'lucide-react';
 import { ChibiAvatar } from './ChibiAvatar';
 
 export const ALL_PLAYERS_TARGET = 'ALL';
@@ -40,6 +40,14 @@ export const TEACHER_REWARD_OPTIONS: TeacherRewardOption[] = [
     badgeColor: 'border-emerald-500/50 bg-emerald-500/10 hover:border-emerald-400 text-emerald-400',
   },
   {
+    type: 'STREAK_GUARD',
+    name: '🔥 Bảo toàn chuỗi thắng',
+    shortName: 'Bảo toàn chuỗi',
+    description: 'Giữ nguyên chuỗi câu đúng nếu lỡ trả lời sai ở câu kế!',
+    icon: Flame,
+    badgeColor: 'border-rose-500/50 bg-rose-500/10 hover:border-rose-400 text-rose-400',
+  },
+  {
     type: 'MYSTERY_BOX',
     name: '🎁 Rương kho báu (+300 điểm)',
     shortName: 'Rương kho báu',
@@ -49,9 +57,9 @@ export const TEACHER_REWARD_OPTIONS: TeacherRewardOption[] = [
   },
   {
     type: 'ROCKET_BOOST',
-    name: '🚀 Tên lửa tăng tốc (+300 điểm)',
+    name: '🚀 Tên lửa tăng tốc',
     shortName: 'Tên lửa tăng tốc',
-    description: 'Tăng tốc bứt phá vị trí trên Bảng Xếp Hạng!',
+    description: 'Trả lời đúng <5s nhận thêm +200 điểm tốc độ!',
     icon: Rocket,
     badgeColor: 'border-pink-500/50 bg-pink-500/10 hover:border-pink-400 text-pink-400',
   },
