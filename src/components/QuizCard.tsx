@@ -375,7 +375,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
 
             {/* QTYPE 1: MULTIPLE CHOICE */}
             {qType === 'MULTIPLE_CHOICE' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4 mt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 mt-4 sm:mt-5">
                 {question.options.map((option, idx) => {
                   const isSelected = selectedOption === idx;
                   const isCorrectOption = idx === question.correctIndex;
@@ -401,20 +401,20 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                       aria-pressed={isSelected}
                       disabled={isAnswered || isDisabledBy5050 || player?.isFrozen}
                       onClick={() => handleSelectMC(idx)}
-                      className={`relative flex items-center p-4 sm:p-5 rounded-2xl bg-gradient-to-r ${cardStateStyle} border-2 text-white font-extrabold text-left transition-all duration-200 shadow-xl active:scale-95 cursor-pointer disabled:cursor-not-allowed`}
+                      className={`relative flex items-center min-h-[52px] sm:min-h-[56px] px-3 py-2.5 sm:px-4 sm:py-3 rounded-2xl bg-gradient-to-r ${cardStateStyle} border-2 text-white font-bold text-left transition-all duration-150 shadow-md active:scale-[0.99] cursor-pointer disabled:cursor-not-allowed h-auto w-full`}
                     >
-                      <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-black/20 flex items-center justify-center font-black text-base sm:text-lg mr-3 sm:mr-4 border border-white/20 shrink-0">
+                      <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-black/25 flex items-center justify-center font-black text-sm sm:text-base mr-2.5 sm:mr-3 border border-white/20 shrink-0">
                         {optionLabels[idx]}
                       </span>
-                      <span className="text-base sm:text-lg md:text-xl flex-1 pr-6 overflow-x-auto text-wrap break-words">
+                      <span className="text-sm sm:text-base md:text-lg font-bold leading-snug flex-1 min-w-0 pr-7 overflow-x-auto text-wrap break-words text-left">
                         <MathRenderer text={option} />
                       </span>
 
                       {isAnswered && isCorrectOption && (
-                        <CheckCircle2 className="w-7 h-7 text-white absolute right-4 shrink-0" />
+                        <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-white absolute right-2.5 sm:right-3 shrink-0" />
                       )}
                       {isAnswered && isSelected && !isCorrectOption && (
-                        <XCircle className="w-7 h-7 text-red-200 absolute right-4 shrink-0" />
+                        <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-200 absolute right-2.5 sm:right-3 shrink-0" />
                       )}
                     </button>
                   );
