@@ -81,8 +81,7 @@ export class RealtimeService {
               const existingPlayer = Object.values(currentRoom.players).find(
                 (p) =>
                   p.id === incomingPlayer.id ||
-                  (p.name.trim().toLowerCase() === incomingPlayer.name.trim().toLowerCase() && p.name.trim() !== '') ||
-                  (p.studentCode && incomingPlayer.studentCode && p.studentCode === incomingPlayer.studentCode)
+                  (p.studentCode && incomingPlayer.studentCode && p.studentCode.trim() === incomingPlayer.studentCode.trim())
               );
 
               let finalPlayer: Player;
@@ -170,8 +169,7 @@ export class RealtimeService {
       const existingPlayer = Object.values(room.players).find(
         (p) =>
           p.id === player.id ||
-          (p.name.trim().toLowerCase() === player.name.trim().toLowerCase() && p.name.trim() !== '') ||
-          (p.studentCode && player.studentCode && p.studentCode === player.studentCode)
+          (p.studentCode && player.studentCode && p.studentCode.trim() === player.studentCode.trim())
       );
 
       let playerToUse: Player;

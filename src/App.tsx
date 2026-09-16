@@ -204,9 +204,9 @@ export function App() {
       if (role === 'PLAYER' && player) {
         const syncedPlayer =
           updatedRoom.players[player.id] ||
-          Object.values(updatedRoom.players).find(
-            (p) => p.name.trim().toLowerCase() === player.name.trim().toLowerCase() && p.name.trim() !== ''
-          );
+          (player.studentCode
+            ? Object.values(updatedRoom.players).find((p) => p.studentCode && p.studentCode.trim() === player.studentCode?.trim())
+            : undefined);
 
         if (syncedPlayer) {
           setPlayer(syncedPlayer);
@@ -296,9 +296,9 @@ export function App() {
       setRoom(updatedRoom);
       const restored =
         updatedRoom.players[playerToJoin.id] ||
-        Object.values(updatedRoom.players).find(
-          (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase() && p.name.trim() !== ''
-        );
+        (playerToJoin.studentCode
+          ? Object.values(updatedRoom.players).find((p) => p.studentCode && p.studentCode.trim() === playerToJoin.studentCode?.trim())
+          : undefined);
       if (restored) {
         setPlayer(restored);
         playerToJoin = restored;
