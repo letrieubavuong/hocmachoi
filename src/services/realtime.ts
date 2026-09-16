@@ -493,7 +493,7 @@ export class RealtimeService {
 
     const targetPlayer = targetId !== 'ALL' ? room.players[targetId] : undefined;
     const giftEvent: TeacherGiftEvent = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: `gift_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       senderName: 'Giáo Viên',
       targetId,
       targetName: targetPlayer ? targetPlayer.name : 'Tất cả học sinh',
@@ -541,7 +541,6 @@ export class RealtimeService {
         reflectShieldActive,
         rocketBoostActive,
         streakGuardActive,
-        unlockedPowerUp: powerUpType,
       };
     };
 
