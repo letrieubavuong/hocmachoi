@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { TeacherAlertEvent, TeacherGiftEvent } from '../types';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { TeacherAlertEvent, TeacherGiftEvent, PowerUpType } from '../types';
 import { CheckCircle, Sparkles } from 'lucide-react';
 import { soundManager } from '../services/audio';
 
@@ -204,6 +204,7 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
           totalInQueue={totalInQueue}
           onDismiss={handleDismissCurrent}
           buttonRef={buttonRef}
+          currentPlayerId={currentPlayerId}
         />
       ) : (
         <StudentAlertCard
@@ -219,12 +220,93 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
 
 StudentAlertModal.displayName = 'StudentAlertModal';
 
-// Presentation Component: Gift Card
+// Metadata dictionary for Random Teacher Rewards
+const REWARD_METADATA: Record<PowerUpType, {
+  name: string;
+  icon: string;
+  description: string;
+  badgeBg: string;
+  badgeText: string;
+}> = {
+  DOUBLE_POINTS: {
+    name: '⚡ NHÂN 2 ĐIỂM SỐ',
+    icon: '⚡',
+    description: 'Nhân đôi điểm số cho câu trả lời đúng tiếp theo của bạn!',
+    badgeBg: 'bg-amber-500/20 border-amber-400/50',
+    badgeText: 'text-amber-300',
+  },
+  SHIELD: {
+    name: '🛡️ KHIÊN BẢO VỆ +1',
+    icon: '🛡️',
+    description: 'Nhận 1 Khiên bảo vệ bạn an toàn khỏi đòn cướp điểm!',
+    badgeBg: 'bg-cyan-500/20 border-cyan-400/50',
+    badgeText: 'text-cyan-300',
+  },
+  MYSTERY_BOX: {
+    name: '🎁 RƯƠNG KHO BÁU (+300 ĐIỂM)',
+    icon: '🎁',
+    description: 'Cộng trực tiếp +300 điểm may mắn vào tổng điểm của bạn!',
+    badgeBg: 'bg-yellow-500/20 border-yellow-400/50',
+    badgeText: 'text-yellow-300',
+  },
+  ORACLE_5050: {
+    name: '👁️ MẮT THẦN 50:50',
+    icon: '👁️',
+    description: 'Tự động bôi đen loại bỏ 2 phương án sai ở câu hỏi tới!',
+    badgeBg: 'bg-emerald-500/20 border-emerald-400/50',
+    badgeText: 'text-emerald-300',
+  },
+  ROCKET_BOOST: {
+    name: '🚀 TÊN LỬA TĂNG TỐC (+200 ĐIỂM)',
+    icon: '🚀',
+    description: 'Tăng 200 điểm thưởng tốc độ khi trả lời đúng nhanh < 5s!',
+    badgeBg: 'bg-pink-500/20 border-pink-400/50',
+    badgeText: 'text-pink-300',
+  },
+  STREAK_GUARD: {
+    name: '🔥 BẢO TOÀN CHUỖI THẮNG',
+    icon: '🔥',
+    description: 'Giữ nguyên chuỗi đúng nếu lỡ trả lời sai ở câu tiếp theo!',
+    badgeBg: 'bg-rose-500/20 border-rose-400/50',
+    badgeText: 'text-rose-300',
+  },
+  REFLECT_SHIELD: {
+    name: '👑 KHIÊN PHẢN ĐÒN',
+    icon: '👑',
+    description: 'Tự động phản đòn và bật ngược sát thương lại kẻ tấn công!',
+    badgeBg: 'bg-purple-500/20 border-purple-400/50',
+    badgeText: 'text-purple-300',
+  },
+  FREEZE: {
+    name: '❄️ ĐÓNG BĂNG ĐỐI THỦ',
+    icon: '❄️',
+    description: 'Đóng băng đối thủ trong 5 giây!',
+    badgeBg: 'bg-blue-500/20 border-blue-400/50',
+    badgeText: 'text-blue-300',
+  },
+  BOMB: {
+    name: '💣 BOM HẸN GIỜ',
+    icon: '💣',
+    description: 'Đặt bom cướp điểm đối thủ!',
+    badgeBg: 'bg-rose-500/20 border-rose-400/50',
+    badgeText: 'text-rose-300',
+  },
+  ATTACK: {
+    name: '⚔️ TẤN CÔNG ĐỐI THỦ',
+    icon: '⚔️',
+    description: 'Tấn công đối thủ!',
+    badgeBg: 'bg-purple-500/20 border-purple-400/50',
+    badgeText: 'text-purple-300',
+  },
+};
+
+// Presentation Component: Gift Card with Mystery Chest Opening Animation
 interface StudentGiftCardProps {
   notification: Extract<StudentNotification, { kind: 'GIFT' }>;
   totalInQueue: number;
   onDismiss: () => void;
   buttonRef?: React.Ref<HTMLButtonElement>;
+  currentPlayerId?: string;
 }
 
 const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
@@ -232,9 +314,41 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
   totalInQueue,
   onDismiss,
   buttonRef,
+  currentPlayerId,
 }) => {
   const { event } = notification;
   const isForClass = event.targetId === 'ALL';
+  const [chestState, setChestState] = useState<'CLOSED' | 'OPENING' | 'REVEALED'>('CLOSED');
+
+  // Determine the rolled reward assigned for THIS student
+  const rolledType: PowerUpType = useMemo(() => {
+    if (event.rewardMap && currentPlayerId && event.rewardMap[currentPlayerId]) {
+      return event.rewardMap[currentPlayerId];
+    }
+    return event.powerUpType || 'MYSTERY_BOX';
+  }, [event, currentPlayerId]);
+
+  const rewardMeta = REWARD_METADATA[rolledType] || REWARD_METADATA.MYSTERY_BOX;
+
+  const handleOpenChest = () => {
+    if (chestState !== 'CLOSED') return;
+    setChestState('OPENING');
+
+    try {
+      soundManager.playShield();
+    } catch {
+      // Audio playback catch
+    }
+
+    setTimeout(() => {
+      setChestState('REVEALED');
+      try {
+        soundManager.playCorrect();
+      } catch {
+        // Audio playback catch
+      }
+    }, 1300);
+  };
 
   return (
     <div
@@ -253,35 +367,92 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
 
       {/* Top Tag Header */}
       <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md bg-yellow-500/20 text-yellow-300 border-yellow-400/50 mx-auto mt-1">
-        <Sparkles className="w-4 h-4 text-yellow-400" />
-        <span>🎉 GIÁO VIÊN VỪA TẶNG QUÀ</span>
+        <Sparkles className="w-4 h-4 text-yellow-400 animate-spin" />
+        <span>🎉 GIÁO VIÊN VỪA TẶNG RƯƠNG THƯỞNG!</span>
       </div>
 
-      {/* Icon & Title */}
-      <div className="space-y-3 py-1">
-        <div className="w-20 h-20 bg-yellow-500/20 border-2 border-yellow-400/80 rounded-full flex items-center justify-center text-4xl mx-auto shadow-lg shadow-yellow-500/20">
-          🎁
+      {chestState === 'CLOSED' && (
+        <div className="space-y-5 py-2 animate-fade-in">
+          {/* Closed Mystery Chest Visual */}
+          <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+            <div className="absolute inset-0 bg-yellow-500/30 rounded-full blur-2xl animate-pulse" />
+            <div className="w-24 h-24 bg-gradient-to-tr from-yellow-500/30 via-amber-400/20 to-purple-500/30 border-2 border-yellow-400 rounded-3xl flex items-center justify-center text-5xl shadow-2xl shadow-yellow-500/30 relative">
+              <span className="animate-bounce">🎁</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h3
+              id="student-gift-title"
+              className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-300 to-pink-300 leading-snug tracking-wide"
+            >
+              {event.giftTitle || '🎁 Rương Thưởng May Mắn'}
+            </h3>
+            <p id="student-gift-desc" className="text-sm text-slate-200 font-medium px-2 leading-relaxed">
+              Giáo viên vừa tặng 1 Rương Thưởng May Mắn cho <strong className="text-yellow-300">{isForClass ? 'cả lớp' : 'bạn'}</strong>. Hãy bấm mở để khám phá quà tặng!
+            </p>
+          </div>
+
+          <button
+            onClick={handleOpenChest}
+            className="w-full min-h-[52px] py-3.5 px-4 bg-gradient-to-r from-yellow-400 via-amber-500 to-pink-500 hover:from-yellow-300 hover:to-pink-400 text-slate-950 font-black text-lg sm:text-xl rounded-2xl shadow-2xl shadow-yellow-500/40 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer ring-4 ring-yellow-400/30 animate-pulse"
+          >
+            <Sparkles className="w-6 h-6 text-slate-950 flex-shrink-0" />
+            <span>✨ MỞ RƯƠNG THƯỞNG MAY MẮN ✨</span>
+          </button>
         </div>
-        <h3
-          id="student-gift-title"
-          className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-300 to-pink-300 leading-snug tracking-wide break-words text-wrap"
-        >
-          {event.giftTitle}
-        </h3>
-        <p id="student-gift-desc" className="text-sm text-slate-200 font-medium px-2 leading-relaxed">
-          Giáo viên vừa tặng phần thưởng cho <strong className="text-yellow-300">{isForClass ? 'cả lớp' : 'bạn'}</strong>.
-        </p>
-      </div>
+      )}
 
-      {/* Primary Action Button */}
-      <button
-        ref={buttonRef}
-        onClick={onDismiss}
-        className="w-full min-h-[48px] py-3.5 px-4 bg-gradient-to-r from-yellow-500 via-amber-500 to-pink-500 hover:from-yellow-400 hover:to-pink-400 text-slate-950 font-black text-base sm:text-lg rounded-2xl shadow-xl shadow-yellow-500/30 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-4 focus:ring-yellow-400/50"
-      >
-        <CheckCircle className="w-5 h-5 text-slate-950 flex-shrink-0" />
-        <span>ĐÃ HIỂU • TIẾP TỤC LÀM BÀI</span>
-      </button>
+      {chestState === 'OPENING' && (
+        <div className="py-6 space-y-4 text-center animate-fade-in">
+          <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+            <div className="absolute inset-0 bg-yellow-400/40 rounded-full blur-2xl animate-ping" />
+            <div className="w-24 h-24 bg-gradient-to-tr from-yellow-400 via-amber-500 to-pink-500 border-4 border-yellow-200 rounded-3xl flex items-center justify-center text-5xl shadow-2xl animate-bounce">
+              🧰
+            </div>
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-xl font-black text-yellow-300 tracking-wider animate-pulse">
+              ⚡ ĐANG GIẢI MÃ RƯƠNG THƯỞNG...
+            </h4>
+            <p className="text-xs text-slate-300">Chúc bạn nhận được phần thưởng siêu phẩm!</p>
+          </div>
+        </div>
+      )}
+
+      {chestState === 'REVEALED' && (
+        <div className="space-y-5 py-1 animate-scale-up">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md bg-emerald-500/20 text-emerald-300 border-emerald-400/50 mx-auto">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span>🎉 BẠN ĐÃ MỞ RƯƠNG THÀNH CÔNG!</span>
+          </div>
+
+          <div className={`w-24 h-24 border-2 rounded-full flex items-center justify-center text-5xl mx-auto shadow-2xl animate-bounce ${rewardMeta.badgeBg}`}>
+            {rewardMeta.icon}
+          </div>
+
+          <div className="space-y-2">
+            <h3
+              id="student-gift-title"
+              className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-300 to-emerald-300 leading-snug tracking-wide"
+            >
+              {rewardMeta.name}
+            </h3>
+            <p id="student-gift-desc" className="text-sm text-slate-200 font-medium px-4 leading-relaxed">
+              {rewardMeta.description}
+            </p>
+          </div>
+
+          <button
+            ref={buttonRef}
+            onClick={onDismiss}
+            className="w-full min-h-[48px] py-3.5 px-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-base sm:text-lg rounded-2xl shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer focus:outline-none focus:ring-4 focus:ring-emerald-400/50"
+          >
+            <CheckCircle className="w-5 h-5 text-slate-950 flex-shrink-0" />
+            <span>ĐÃ NHẬN • TIẾP TỤC LÀM BÀI</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

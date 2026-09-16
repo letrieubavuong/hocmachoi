@@ -141,6 +141,7 @@ export interface TeacherGiftEvent {
   powerUpType: PowerUpType;
   giftTitle: string;
   timestamp: number;
+  rewardMap?: Record<string, PowerUpType>;
 }
 
 export interface GameRoom {

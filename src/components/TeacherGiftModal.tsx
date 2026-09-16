@@ -322,22 +322,24 @@ export const TeacherGiftModal: React.FC<TeacherGiftModalProps> = ({
           </div>
         </div>
 
-        {/* Section 2: Choose Power-Up Reward */}
+        {/* Section 2: Random Mystery Chest Preview */}
         <div className="space-y-2.5 relative z-10">
           <label className="block text-xs font-black text-amber-400 uppercase tracking-wider">
-            2. CHỌN VẬT PHẨM / PHẦN THƯỞNG:
+            2. VẬT PHẨM TẶNG HỌC SINH:
           </label>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {TEACHER_REWARD_OPTIONS.map((opt) => (
-              <TeacherRewardCard
-                key={opt.type}
-                option={opt}
-                isSelected={selectedPowerUp === opt.type}
-                isDisabled={isSending}
-                onSelect={() => setSelectedPowerUp(opt.type)}
-              />
-            ))}
+          <div className="p-4 bg-gradient-to-r from-yellow-950/60 via-slate-900 to-purple-950/60 border-2 border-yellow-400/60 rounded-2xl flex items-center gap-4">
+            <div className="w-14 h-14 bg-yellow-500/20 border border-yellow-400/50 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-lg shadow-yellow-500/20 animate-pulse">
+              🎁
+            </div>
+            <div className="space-y-1">
+              <h4 className="font-black text-sm text-yellow-300">
+                🎲 RƯƠNG THƯỞNG MAY MẮN NGẪU NHIÊN
+              </h4>
+              <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                Học sinh sẽ được <strong>quay thưởng ngẫu nhiên</strong> khi tự tay mở rương trên màn hình (Nhận ⚡ Nhân 2 điểm, 🛡️ Khiên, 👁️ Mắt thần, 🎁 +300đ, 🚀 +200đ, 🔥 Bảo toàn chuỗi, v.v.).
+              </p>
+            </div>
           </div>
         </div>
 
@@ -361,7 +363,7 @@ export const TeacherGiftModal: React.FC<TeacherGiftModalProps> = ({
           <div className="text-right">
             <span className="text-slate-400 font-bold block">PHẦN THƯỞNG:</span>
             <span className="text-yellow-400 font-black text-sm">
-              {currentRewardOpt.name}
+              🎁 Rương Thưởng May Mắn
             </span>
           </div>
         </div>
@@ -375,7 +377,7 @@ export const TeacherGiftModal: React.FC<TeacherGiftModalProps> = ({
           >
             <Send className="w-5 h-5 text-slate-950" />
             <span>
-              {isSending ? 'ĐANG GỬI PHẦN THƯỞNG...' : '🚀 TẶNG PHẦN THƯỞNG NGAY!'}
+              {isSending ? 'ĐANG GỬI RƯƠNG THƯỞNG...' : '🚀 TẶNG RƯƠNG THƯỞNG MAY MẮN!'}
             </span>
           </button>
         </div>

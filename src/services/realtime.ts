@@ -482,29 +482,36 @@ export class RealtimeService {
   }
 
   // Teacher: Grant Reward / Power-Up to a Specific Student or All Students
+  // Teacher: Grant Random Mystery Reward / Power-Up to a Specific Student or All Students
   public grantTeacherReward(
     roomCode: string,
     targetId: string, // 'ALL' or player id
-    powerUpType: PowerUpType,
-    giftTitle: string
+    requestedPowerUpType: PowerUpType = 'MYSTERY_BOX',
+    giftTitle: string = '🎁 Rương Thưởng May Mắn Từ Giáo Viên'
   ): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room) return null;
 
-    const targetPlayer = targetId !== 'ALL' ? room.players[targetId] : undefined;
-    const giftEvent: TeacherGiftEvent = {
-      id: `gift_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      senderName: 'Giáo Viên',
-      targetId,
-      targetName: targetPlayer ? targetPlayer.name : 'Tất cả học sinh',
-      powerUpType,
-      giftTitle,
-      timestamp: Date.now(),
+    const TEACHER_REWARD_POOL: PowerUpType[] = [
+      'DOUBLE_POINTS',
+      'SHIELD',
+      'MYSTERY_BOX',
+      'ORACLE_5050',
+      'ROCKET_BOOST',
+      'STREAK_GUARD',
+      'REFLECT_SHIELD',
+    ];
+
+    const pickRandomReward = (): PowerUpType => {
+      const idx = Math.floor(Math.random() * TEACHER_REWARD_POOL.length);
+      return TEACHER_REWARD_POOL[idx];
     };
 
+    const targetPlayer = targetId !== 'ALL' ? room.players[targetId] : undefined;
+    const rewardMap: Record<string, PowerUpType> = {};
     const updatedPlayers = { ...room.players };
 
-    const applyGiftToPlayer = (p: Player): Player => {
+    const applyGiftToPlayer = (p: Player, rolledType: PowerUpType): Player => {
       let score = p.score;
       let shieldActive = p.shieldActive;
       let shieldCount = p.shieldCount;
@@ -514,20 +521,20 @@ export class RealtimeService {
       let rocketBoostActive = p.rocketBoostActive;
       let streakGuardActive = p.streakGuardActive;
 
-      if (powerUpType === 'MYSTERY_BOX') {
+      if (rolledType === 'MYSTERY_BOX') {
         score += 300;
-      } else if (powerUpType === 'SHIELD') {
+      } else if (rolledType === 'SHIELD') {
         shieldActive = true;
         shieldCount += 1;
-      } else if (powerUpType === 'DOUBLE_POINTS') {
+      } else if (rolledType === 'DOUBLE_POINTS') {
         doublePointsActive = true;
-      } else if (powerUpType === 'ORACLE_5050') {
+      } else if (rolledType === 'ORACLE_5050') {
         oracle5050Active = true;
-      } else if (powerUpType === 'REFLECT_SHIELD') {
+      } else if (rolledType === 'REFLECT_SHIELD') {
         reflectShieldActive = true;
-      } else if (powerUpType === 'ROCKET_BOOST') {
+      } else if (rolledType === 'ROCKET_BOOST') {
         rocketBoostActive = true;
-      } else if (powerUpType === 'STREAK_GUARD') {
+      } else if (rolledType === 'STREAK_GUARD') {
         streakGuardActive = true;
       }
 
@@ -544,13 +551,32 @@ export class RealtimeService {
       };
     };
 
+    let mainRolledType: PowerUpType = requestedPowerUpType;
+
     if (targetId === 'ALL') {
       Object.keys(updatedPlayers).forEach((pId) => {
-        updatedPlayers[pId] = applyGiftToPlayer(updatedPlayers[pId]);
+        const rolled = pickRandomReward();
+        rewardMap[pId] = rolled;
+        updatedPlayers[pId] = applyGiftToPlayer(updatedPlayers[pId], rolled);
       });
+      mainRolledType = 'MYSTERY_BOX';
     } else if (updatedPlayers[targetId]) {
-      updatedPlayers[targetId] = applyGiftToPlayer(updatedPlayers[targetId]);
+      const rolled = pickRandomReward();
+      rewardMap[targetId] = rolled;
+      mainRolledType = rolled;
+      updatedPlayers[targetId] = applyGiftToPlayer(updatedPlayers[targetId], rolled);
     }
+
+    const giftEvent: TeacherGiftEvent = {
+      id: `gift_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      senderName: 'Giáo Viên',
+      targetId,
+      targetName: targetPlayer ? targetPlayer.name : 'Tất cả học sinh',
+      powerUpType: mainRolledType,
+      giftTitle: giftTitle || '🎁 Rương Thưởng May Mắn Từ Giáo Viên',
+      timestamp: Date.now(),
+      rewardMap,
+    };
 
     const updatedRoom: GameRoom = {
       ...room,
