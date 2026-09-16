@@ -224,7 +224,7 @@ interface StudentGiftCardProps {
   notification: Extract<StudentNotification, { kind: 'GIFT' }>;
   totalInQueue: number;
   onDismiss: () => void;
-  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
@@ -291,7 +291,7 @@ interface StudentAlertCardProps {
   notification: Extract<StudentNotification, { kind: 'ALERT' }>;
   totalInQueue: number;
   onDismiss: () => void;
-  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 const StudentAlertCard: React.FC<StudentAlertCardProps> = ({

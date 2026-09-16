@@ -220,7 +220,7 @@ export function App() {
           localStorage.removeItem(STORAGE_ACTIVE_PLAYER_SESSION);
           setPlayer(null);
           setRoom(null);
-          setRole(null);
+          setRole('HOME');
           setShowKickedModal(true);
         }
       }
