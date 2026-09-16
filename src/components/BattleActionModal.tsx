@@ -27,7 +27,7 @@ export type { TargetMode, PowerUpMeta };
 
 export const REWARD_OPTIONS: PowerUpType[] = ['ATTACK', 'SHIELD', 'ORACLE_5050', 'STREAK_GUARD', 'MYSTERY_BOX'];
 
-export type BattleStep = 'SELECT_POWERUP' | 'SELECT_TARGET' | 'RESULT';
+export type BattleStep = 'UNBOX_CHEST' | 'OPENING_CHEST' | 'SELECT_POWERUP' | 'SELECT_TARGET' | 'RESULT';
 
 export interface BattleResultData {
   blocked: boolean;
@@ -63,7 +63,7 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   onClose,
   onNextQuestion,
 }) => {
-  const [step, setStep] = useState<BattleStep>('SELECT_POWERUP');
+  const [step, setStep] = useState<BattleStep>('UNBOX_CHEST');
   const [activePowerUp, setActivePowerUp] = useState<PowerUpType | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
@@ -155,7 +155,6 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
             finishRewardFlow();
           }, 1000);
         } else {
-          // If execution returned null (validation fail or already consumed), close cleanly
           finishRewardFlow();
         }
       } catch (err) {
@@ -183,14 +182,43 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
       }
 
       if (powerUpType) {
-        const meta = POWER_UP_CONFIG[powerUpType];
         setActivePowerUp(powerUpType);
+        setStep('UNBOX_CHEST');
+      } else {
+        setActivePowerUp(null);
+        setStep('SELECT_POWERUP');
+      }
+    }
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+      }
+    };
+  }, [isOpen, powerUpType]);
 
+  // Unbox Mystery Chest Action
+  const handleOpenChest = useCallback(() => {
+    if (step !== 'UNBOX_CHEST') return;
+    setStep('OPENING_CHEST');
+
+    try {
+      soundManager.playShield();
+    } catch {}
+
+    setTimeout(() => {
+      try {
+        soundManager.playCorrect();
+      } catch {}
+
+      if (powerUpType) {
+        const meta = POWER_UP_CONFIG[powerUpType];
         if (meta && meta.targetMode === 'SELF') {
-          // Self-target power-ups execute immediately
           executePowerUp(powerUpType, attacker.id);
         } else if (meta && meta.targetMode === 'OPPONENT') {
-          if (battleSessionState?.studentTargetMode === 'RANDOM' || battleSessionState?.battleMode === 'RANDOM_TARGET_ONLY') {
+          if (
+            battleSessionState?.studentTargetMode === 'RANDOM' ||
+            battleSessionState?.battleMode === 'RANDOM_TARGET_ONLY'
+          ) {
             const randomTarget = BattleEngine.pickRandomTarget({
               attackerId: attacker.id,
               opponents,
@@ -208,16 +236,10 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
           setStep('SELECT_POWERUP');
         }
       } else {
-        setActivePowerUp(null);
         setStep('SELECT_POWERUP');
       }
-    }
-    return () => {
-      if (autoCloseTimerRef.current) {
-        clearTimeout(autoCloseTimerRef.current);
-      }
-    };
-  }, [isOpen, powerUpType]); // Clean dependencies: ONLY isOpen and powerUpType!
+    }, 1300);
+  }, [step, powerUpType, attacker.id, opponents, battleSessionState, executePowerUp]); // Clean dependencies: ONLY isOpen and powerUpType!
 
   const handleSelectRewardCard = useCallback(
     (type: PowerUpType) => {
@@ -277,6 +299,16 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
 
         <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
 
+        {/* STEP: UNBOX_CHEST */}
+        {step === 'UNBOX_CHEST' && (
+          <UnboxChestView onOpenChest={handleOpenChest} />
+        )}
+
+        {/* STEP: OPENING_CHEST */}
+        {step === 'OPENING_CHEST' && (
+          <OpeningChestView />
+        )}
+
         {/* STEP: RESULT */}
         {step === 'RESULT' && battleResult && (
           <BattleResultView
@@ -314,6 +346,64 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
             onSelectCard={handleSelectRewardCard}
           />
         )}
+      </div>
+    </div>
+  );
+};
+
+/* Sub-Component 0: UnboxChestView */
+const UnboxChestView: React.FC<{
+  onOpenChest: () => void;
+}> = ({ onOpenChest }) => {
+  return (
+    <div className="space-y-5 py-3 animate-fade-in relative z-10">
+      <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 font-black uppercase text-[11px] sm:text-xs tracking-wider">
+        <Sparkles className="w-3.5 h-3.5 text-yellow-400 animate-spin" />
+        <span>THƯỞNG CHUỖI CÂU ĐÚNG ĐẤU TRƯỜNG</span>
+      </div>
+
+      <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+        <div className="absolute inset-0 bg-yellow-500/30 rounded-full blur-2xl animate-pulse" />
+        <div className="w-24 h-24 bg-gradient-to-tr from-yellow-500/30 via-amber-400/20 to-purple-500/30 border-2 border-yellow-400 rounded-3xl flex items-center justify-center text-5xl shadow-2xl shadow-yellow-500/30 relative">
+          <span className="animate-bounce">🎁</span>
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <h2 id="battle-modal-title" className="text-xl sm:text-2xl md:text-3xl font-black text-white">
+          🎉 BẠN ĐÃ NHẬN 1 RƯƠNG THƯỞNG MAY MẮN!
+        </h2>
+        <p className="text-xs sm:text-sm text-slate-300 font-medium max-w-md mx-auto">
+          Nhờ chuỗi trả lời đúng xuất sắc, bạn nhận được 1 Rương Thưởng May Mắn. Hãy bấm mở để khám phá phần thưởng!
+        </p>
+      </div>
+
+      <button
+        onClick={onOpenChest}
+        className="w-full min-h-[52px] py-3.5 px-4 bg-gradient-to-r from-yellow-400 via-amber-500 to-pink-500 hover:from-yellow-300 hover:to-pink-400 text-slate-950 font-black text-lg sm:text-xl rounded-2xl shadow-2xl shadow-yellow-500/40 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer ring-4 ring-yellow-400/30 animate-pulse"
+      >
+        <Sparkles className="w-6 h-6 text-slate-950 flex-shrink-0" />
+        <span>✨ MỞ RƯƠNG THƯỞNG MAY MẮN ✨</span>
+      </button>
+    </div>
+  );
+};
+
+/* Sub-Component 0.5: OpeningChestView */
+const OpeningChestView: React.FC = () => {
+  return (
+    <div className="py-8 space-y-4 text-center animate-fade-in relative z-10">
+      <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+        <div className="absolute inset-0 bg-yellow-400/40 rounded-full blur-2xl animate-ping" />
+        <div className="w-24 h-24 bg-gradient-to-tr from-yellow-400 via-amber-500 to-pink-500 border-4 border-yellow-200 rounded-3xl flex items-center justify-center text-5xl shadow-2xl animate-bounce">
+          🧰
+        </div>
+      </div>
+      <div className="space-y-1">
+        <h4 className="text-xl font-black text-yellow-300 tracking-wider animate-pulse">
+          ⚡ ĐANG GIẢI MÃ RƯƠNG THƯỞNG ĐẤU TRƯỜNG...
+        </h4>
+        <p className="text-xs text-slate-300">Đang quay phần thưởng ngẫu nhiên siêu đỉnh!</p>
       </div>
     </div>
   );
