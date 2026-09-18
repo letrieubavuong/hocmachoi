@@ -70,7 +70,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     } else if (qType === 'TRUE_FALSE') {
       return (
         Array.isArray(question.options) &&
-        question.options.length >= 1
+        question.options.length >= 1 &&
+        Array.isArray(question.tfAnswers) &&
+        question.tfAnswers.length === question.options.length &&
+        question.tfAnswers.every((val) => typeof val === 'boolean')
       );
     } else if (qType === 'SHORT_ANSWER') {
       return typeof question.shortAnswerText === 'string' && question.shortAnswerText.trim().length > 0;
@@ -217,13 +220,14 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const submitTFAnswers = (selectionsToUse: Record<number, boolean>) => {
     if (isAnswered || player?.isFrozen || submitLockRef.current || !isQuestionDataValid) return;
 
+    if (!Array.isArray(question.tfAnswers) || question.tfAnswers.length !== question.options.length) {
+      return;
+    }
+
     submitLockRef.current = true;
     setIsAnswered(true);
 
-    const targetTF =
-      Array.isArray(question.tfAnswers) && question.tfAnswers.length === question.options.length
-        ? question.tfAnswers
-        : question.options.map(() => true);
+    const targetTF = question.tfAnswers;
 
     let correctCount = 0;
     question.options.forEach((_, idx) => {
@@ -724,6 +728,36 @@ const PowerUpRibbon: React.FC<{ player?: Player; qType: string }> = React.memo((
 const ControlledBattleBanner: React.FC<{ battleSessionState?: BattleSessionState }> = ({
   battleSessionState,
 }) => {
+  const endTs = battleSessionState?.battleEndTimestamp;
+  const isBattlePhase = battleSessionState?.currentPhase === 'BATTLE';
+
+  const [remainingSec, setRemainingSec] = useState<number>(() => {
+    if (isBattlePhase && endTs && endTs > 0) {
+      return Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    if (!isBattlePhase || !endTs || endTs <= 0) {
+      setRemainingSec(0);
+      return;
+    }
+
+    const calcRemaining = () => Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
+    setRemainingSec(calcRemaining());
+
+    const timer = setInterval(() => {
+      const rem = calcRemaining();
+      setRemainingSec(rem);
+      if (rem <= 0) {
+        clearInterval(timer);
+      }
+    }, 250);
+
+    return () => clearInterval(timer);
+  }, [isBattlePhase, endTs]);
+
   if (!battleSessionState) return null;
 
   if (battleSessionState.focusModeActive) {
@@ -734,10 +768,7 @@ const ControlledBattleBanner: React.FC<{ battleSessionState?: BattleSessionState
     );
   }
 
-  if (battleSessionState.currentPhase === 'BATTLE') {
-    const endTs = battleSessionState.battleEndTimestamp || Date.now() + 10000;
-    const remainingSec = Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
-
+  if (isBattlePhase) {
     return (
       <div className="w-full py-2 px-4 rounded-xl bg-gradient-to-r from-red-600 via-amber-600 to-rose-600 text-white font-black text-xs sm:text-sm flex items-center justify-between gap-2 shadow-lg animate-pulse border border-amber-300/50">
         <div className="flex items-center gap-2">

@@ -43,7 +43,7 @@ export const LeaderboardHeader: React.FC<LeaderboardHeaderProps> = ({
         <p className="text-xs md:text-sm text-slate-300">
           {isFinal
             ? 'Chúc mừng các Cao Thủ xuất sắc nhất mùa giải Đấu Trường Quiz!'
-            : 'Đua tốc độ làm bài & tích điểm thăng hạng Liên Quan!'}
+            : 'Đua tốc độ làm bài & tích điểm thăng hạng Liên Quân!'}
         </p>
       </div>
 

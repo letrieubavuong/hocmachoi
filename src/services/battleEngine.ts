@@ -61,6 +61,31 @@ export function createInitialBattleState(config: BattleConfig = DEFAULT_BATTLE_C
   };
 }
 
+/**
+ * Single Source of Truth for Focus Mode State Mutations
+ */
+export function setFocusModeState(prev?: BattleSessionState, active: boolean = true): BattleSessionState {
+  const current = prev || createInitialBattleState();
+  return {
+    ...current,
+    focusModeActive: active,
+    currentPhase: active ? 'PAUSED' : (current.currentPhase === 'PAUSED' ? 'QUIZ' : current.currentPhase),
+  };
+}
+
+/**
+ * Single Source of Truth for Battle Mode State Mutations
+ */
+export function setBattleModeState(prev?: BattleSessionState, mode: BattleMode = 'ROUND'): BattleSessionState {
+  const current = prev || createInitialBattleState();
+  return {
+    ...current,
+    battleMode: mode,
+    battleEnabled: mode !== 'DISABLED',
+    studentTargetMode: mode === 'RANDOM_TARGET_ONLY' ? 'RANDOM' : current.studentTargetMode,
+  };
+}
+
 export class BattleEngine {
   /**
    * Classify power-ups into Learning vs Battle types

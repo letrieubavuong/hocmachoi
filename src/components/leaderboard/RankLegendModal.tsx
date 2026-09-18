@@ -1,5 +1,6 @@
 import React from 'react';
 import { LIEN_QUAN_RANKS } from '../../data/rankAssets';
+import { calculateEstimatedMaxQuizScore } from '../../utils/scoring';
 import { Zap, X, Info } from 'lucide-react';
 
 interface RankLegendModalProps {
@@ -15,7 +16,7 @@ export const RankLegendModal: React.FC<RankLegendModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const estimatedMaxScore = Math.max(500, totalQuestions * 350);
+  const estimatedMaxScore = calculateEstimatedMaxQuizScore(totalQuestions);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">

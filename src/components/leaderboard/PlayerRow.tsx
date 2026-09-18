@@ -49,7 +49,7 @@ export const PlayerRow: React.FC<PlayerRowProps> = ({
               <span className="font-black text-white text-sm sm:text-base truncate">
                 {player.name}
               </span>
-              {player.studentCode && (
+              {isHost && player.studentCode && (
                 <span className="px-1 py-0.2 bg-purple-950/80 border border-purple-500/40 text-purple-300 rounded text-[9px] sm:text-[10px] font-mono font-bold shrink-0">
                   {player.studentCode}
                 </span>

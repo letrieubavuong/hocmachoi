@@ -1,5 +1,6 @@
-import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent, BattleSessionState } from '../types';
+import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent, BattleSessionState, BattleMode } from '../types';
 import { PowerUpEngine } from './powerUpEngine';
+import { setFocusModeState, setBattleModeState } from './battleEngine';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
@@ -226,7 +227,39 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
+  }
+
+  // Host: Authoritative End Game Command
+  public endGame(roomCode: string): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    const updatedPlayers = { ...room.players };
+    Object.keys(updatedPlayers).forEach((id) => {
+      updatedPlayers[id] = {
+        ...updatedPlayers[id],
+        isFinished: true,
+        unlockedPowerUp: null,
+      };
+    });
+
+    const updatedRoom: GameRoom = {
+      ...room,
+      phase: 'FINISHED',
+      players: updatedPlayers,
+      battleSessionState: room.battleSessionState
+        ? {
+            ...room.battleSessionState,
+            currentPhase: 'PAUSED',
+            battleEnabled: false,
+            focusModeActive: false,
+          }
+        : undefined,
+      updatedAt: Date.now(),
+    };
+
+    this.saveAndBroadcast(updatedRoom);
     return updatedRoom;
   }
 
@@ -547,13 +580,13 @@ export class RealtimeService {
 
     if (targetId === 'ALL') {
       Object.keys(updatedPlayers).forEach((pId) => {
-        const rolled = pickRandomReward();
+        const rolled = requestedPowerUpType === 'MYSTERY_BOX' ? pickRandomReward() : requestedPowerUpType;
         rewardMap[pId] = rolled;
         updatedPlayers[pId] = applyGiftToPlayer(updatedPlayers[pId], rolled);
       });
-      mainRolledType = 'MYSTERY_BOX';
+      mainRolledType = requestedPowerUpType;
     } else if (updatedPlayers[targetId]) {
-      const rolled = pickRandomReward();
+      const rolled = requestedPowerUpType === 'MYSTERY_BOX' ? pickRandomReward() : requestedPowerUpType;
       rewardMap[targetId] = rolled;
       mainRolledType = rolled;
       updatedPlayers[targetId] = applyGiftToPlayer(updatedPlayers[targetId], rolled);
@@ -579,7 +612,33 @@ export class RealtimeService {
 
     this.saveAndBroadcast(updatedRoom);
     this.broadcastToPeerClients(updatedRoom);
+
     return updatedRoom;
+  }
+
+  // Teacher Command: Set Focus Mode atomically
+  public setFocusMode(roomCode: string, active: boolean): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    const updatedRoom = this.updateBattleSessionState(roomCode, (prev) => setFocusModeState(prev, active));
+    if (active && updatedRoom) {
+      this.sendTeacherAlert(
+        roomCode,
+        'ALL',
+        '📚 Giáo viên đã bật Chế độ Tập trung. Tất cả lượt tấn công PvP đã bị khóa!',
+        'FOCUS'
+      );
+    }
+    return updatedRoom;
+  }
+
+  // Teacher Command: Set Battle Mode atomically
+  public setBattleMode(roomCode: string, mode: BattleMode): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    return this.updateBattleSessionState(roomCode, (prev) => setBattleModeState(prev, mode));
   }
 
   // Execute Power-Up Action (Supports 10 Epic Power-Ups!)
@@ -994,6 +1053,7 @@ export class RealtimeService {
       this.channel.postMessage(room);
     }
     this.notifyListeners(room);
+    this.broadcastToPeerClients(room);
   }
 
   private notifyListeners(room: GameRoom) {

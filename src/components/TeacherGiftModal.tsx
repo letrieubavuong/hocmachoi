@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Player, PowerUpType } from '../types';
 import { Gift, Zap, Shield, Eye, Rocket, Sparkles, Send, Users, Search, X, AlertCircle, Flame } from 'lucide-react';
 import { ChibiAvatar } from './ChibiAvatar';
@@ -167,8 +167,11 @@ export const TeacherGiftModal: React.FC<TeacherGiftModalProps> = ({
     }
   };
 
+  const sendGiftLockRef = useRef<boolean>(false);
+
   const executeSend = async () => {
-    if (isSending) return;
+    if (isSending || sendGiftLockRef.current) return;
+    sendGiftLockRef.current = true;
     setIsSending(true);
 
     try {
@@ -179,6 +182,7 @@ export const TeacherGiftModal: React.FC<TeacherGiftModalProps> = ({
     } catch (err) {
       setErrorMessage('Có lỗi xảy ra khi gửi phần thưởng. Vui lòng thử lại!');
     } finally {
+      sendGiftLockRef.current = false;
       setIsSending(false);
     }
   };

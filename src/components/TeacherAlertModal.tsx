@@ -101,6 +101,7 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const sendAlertLockRef = useRef<boolean>(false);
 
   const playersList = useMemo(() => Object.values(players), [players]);
 
@@ -109,60 +110,19 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
     const isFocusActive = !!battleSessionState?.focusModeActive;
     const newFocusState = !isFocusActive;
 
-    realtime.updateBattleSessionState(roomCode, (prev?: BattleSessionState) => ({
-      ...(prev || {
-        battleEnabled: true,
-        focusModeActive: false,
-        battleMode: 'ROUND',
-        studentTargetMode: 'RANDOM',
-        currentPhase: 'QUIZ',
-        questionsUntilBattle: 5,
-        battleEndTimestamp: 0,
-        currentRoundId: 1,
-        attackerLogThisRound: {},
-        receivedAttackCountThisRound: {},
-        protectedPlayers: {},
-        lastTargetHistory: {},
-      }),
-      focusModeActive: newFocusState,
-      currentPhase: newFocusState ? 'PAUSED' : 'QUIZ',
-    }));
+    realtime.setFocusMode(roomCode, newFocusState);
 
     if (newFocusState) {
-      realtime.sendTeacherAlert(
-        roomCode,
-        'ALL',
-        '📚 Giáo viên đã bật Chế độ Tập trung. Tất cả lượt tấn công đã bị khóa!',
-        'FOCUS'
-      );
       setSentNotice('🔒 Đã bật Chế độ Tập trung & Khóa toàn bộ Battle!');
     } else {
       setSentNotice('🟢 Đã mở lại Chế độ Trận đấu!');
     }
-  }, [roomCode, battleSessionState]);
+  }, [roomCode, battleSessionState?.focusModeActive]);
 
   const handleChangeBattleMode = useCallback(
     (newMode: BattleMode) => {
       if (!roomCode) return;
-      realtime.updateBattleSessionState(roomCode, (prev?: BattleSessionState) => ({
-        ...(prev || {
-          battleEnabled: true,
-          focusModeActive: false,
-          battleMode: 'ROUND',
-          studentTargetMode: 'RANDOM',
-          currentPhase: 'QUIZ',
-          questionsUntilBattle: 5,
-          battleEndTimestamp: 0,
-          currentRoundId: 1,
-          attackerLogThisRound: {},
-          receivedAttackCountThisRound: {},
-          protectedPlayers: {},
-          lastTargetHistory: {},
-        }),
-        battleMode: newMode,
-        battleEnabled: newMode !== 'DISABLED',
-        studentTargetMode: newMode === 'RANDOM_TARGET_ONLY' ? 'RANDOM' : (prev?.studentTargetMode || 'RANDOM'),
-      }));
+      realtime.setBattleMode(roomCode, newMode);
       setSentNotice(`⚙️ Đã cập nhật chế độ Battle: ${newMode}`);
     },
     [roomCode]
@@ -240,7 +200,8 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
   };
 
   const executeSend = async () => {
-    if (isSending) return;
+    if (isSending || sendAlertLockRef.current) return;
+    sendAlertLockRef.current = true;
     setIsSending(true);
 
     try {
@@ -274,6 +235,7 @@ export const TeacherAlertModal: React.FC<TeacherAlertModalProps> = ({
     } catch {
       setErrorMessage('Có lỗi xảy ra khi phát thông báo.');
     } finally {
+      sendAlertLockRef.current = false;
       setIsSending(false);
     }
   };

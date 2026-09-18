@@ -11,6 +11,18 @@ export interface ScoreInput {
   doublePointsActive?: boolean;
 }
 
+/**
+ * Single Source of Truth for calculating estimated max potential score of a quiz.
+ * Used for Rank Tier percentage calculations across the app.
+ */
+export function calculateEstimatedMaxQuizScore(totalQuestions: number = 5, basePointsPerQ: number = 100): number {
+  const safeQuestions = Math.max(1, totalQuestions);
+  // Max potential per question: base (100) + speed bonus (150) = 250 base max.
+  // With streak multiplier (1.5x) = ~375 max potential points.
+  // Standardized baseline estimate = totalQuestions * 350, minimum 500.
+  return Math.max(500, safeQuestions * 350);
+}
+
 export interface ScoreResult {
   basePoints: number;
   speedBonus: number;

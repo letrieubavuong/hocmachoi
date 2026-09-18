@@ -120,12 +120,12 @@ export const ChibiLobby: React.FC<ChibiLobbyProps> = ({
                     streak={player.streak}
                   />
 
-                  {player.isTabActive === false && (
+                  {isHost && player.isTabActive === false && (
                     <span className="mt-1 px-1.5 py-0.5 bg-rose-600/30 text-rose-300 border border-rose-500/50 rounded-md text-[9px] font-black animate-pulse flex items-center gap-0.5">
                       🔴 Rời tab
                     </span>
                   )}
-                  {(player.tabSwitchCount || 0) > 0 && (
+                  {isHost && (player.tabSwitchCount || 0) > 0 && (
                     <span className="mt-0.5 px-1.5 py-0.5 bg-amber-500/20 text-yellow-300 border border-amber-500/40 rounded-md text-[9px] font-extrabold flex items-center gap-0.5">
                       ⚠️ Rời tab: {player.tabSwitchCount}
                     </span>

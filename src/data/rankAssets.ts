@@ -1,3 +1,5 @@
+import { calculateEstimatedMaxQuizScore } from '../utils/scoring';
+
 export interface RankTier {
   name: string;
   subTitle: string;
@@ -87,8 +89,7 @@ export const LIEN_QUAN_RANKS: RankTier[] = [
  * Calculates rank tier dynamically based on student score and total questions in quiz!
  */
 export function getRankTier(score: number, totalQuestions: number = 5): RankTier {
-  // Estimated max score achievable = ~350 pts per question
-  const estimatedMaxScore = Math.max(500, totalQuestions * 350);
+  const estimatedMaxScore = calculateEstimatedMaxQuizScore(totalQuestions);
   const currentPercent = (score / estimatedMaxScore) * 100;
 
   for (const rank of LIEN_QUAN_RANKS) {

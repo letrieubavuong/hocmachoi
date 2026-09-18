@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount, BattleSessionState } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
@@ -200,6 +200,12 @@ export function App() {
     const unsubscribe = realtime.subscribe(room.roomCode, (updatedRoom) => {
       setRoom(updatedRoom);
 
+      if (updatedRoom.phase === 'FINISHED') {
+        setShowPowerUpModal(false);
+        setShowShopModal(false);
+        setSelectedInquiryStudent(null);
+      }
+
       // Keep local player state synced (match by player.id or name fallback for restored players)
       if (role === 'PLAYER' && player) {
         const syncedPlayer =
@@ -233,12 +239,29 @@ export function App() {
     return () => unsubscribe();
   }, [room?.roomCode, player?.id, player?.name, role]);
 
-  // Host: Remove / Kick Player from Room
-  const handleRemovePlayer = (playerId: string) => {
-    if (!room) return;
-    const updatedRoom = realtime.removePlayer(room.roomCode, playerId);
-    if (updatedRoom) setRoom(updatedRoom);
-  };
+  const removePlayerLockRef = useRef<boolean>(false);
+
+  // Host: Remove / Kick Player from Room (with exactly-once guard)
+  const handleRemovePlayer = useCallback(
+    (playerId: string) => {
+      if (!room || role !== 'HOST' || removePlayerLockRef.current) return;
+      removePlayerLockRef.current = true;
+      try {
+        const updatedRoom = realtime.removePlayer(room.roomCode, playerId);
+        if (updatedRoom) {
+          setRoom(updatedRoom);
+          if (selectedInquiryStudent?.id === playerId) {
+            setSelectedInquiryStudent(null);
+          }
+        }
+      } finally {
+        setTimeout(() => {
+          removePlayerLockRef.current = false;
+        }, 500);
+      }
+    },
+    [room, role, selectedInquiryStudent]
+  );
 
   // Host: Create Room
   const handleCreateRoom = (quizToUse: Quiz) => {
@@ -308,43 +331,104 @@ export function App() {
     soundManager.playBGM();
   };
 
-  // Host: Start Game
-  const handleStartGame = () => {
-    if (!room) return;
-    const updated = realtime.updatePhase(room.roomCode, 'QUESTION', 0);
-    if (updated) setRoom(updated);
-  };
+  const startGameLockRef = useRef<boolean>(false);
+  const hostNextLockRef = useRef<boolean>(false);
 
-  // Host: Overall Game Phase Progression
-  const handleNextQuestion = () => {
-    if (!room) return;
-    const nextIdx = room.currentQuestionIndex + 1;
-    if (nextIdx < room.quiz.questions.length) {
-      const updated = realtime.updatePhase(room.roomCode, 'QUESTION', nextIdx);
+  // Host: Start Game (with exactly-once guard)
+  const handleStartGame = useCallback(() => {
+    if (!room || role !== 'HOST' || startGameLockRef.current) return;
+    startGameLockRef.current = true;
+    try {
+      const updated = realtime.updatePhase(room.roomCode, 'QUESTION', 0);
       if (updated) setRoom(updated);
-    } else {
-      const updated = realtime.updatePhase(room.roomCode, 'FINISHED');
-      if (updated) setRoom(updated);
+    } finally {
+      setTimeout(() => {
+        startGameLockRef.current = false;
+      }, 1000);
     }
-  };
+  }, [room, role]);
 
-  // Student: Per-student independent question advancement
-  const handleStudentNextQuestion = () => {
-    if (!room || !player) return;
+  const endGameLockRef = useRef<boolean>(false);
+
+  // Host: Authoritative End Game Command (with exactly-once guard)
+  const handleEndGame = useCallback(() => {
+    if (!room || role !== 'HOST' || endGameLockRef.current) return;
+    endGameLockRef.current = true;
+    try {
+      const updated = realtime.endGame(room.roomCode);
+      if (updated) setRoom(updated);
+    } finally {
+      setTimeout(() => {
+        endGameLockRef.current = false;
+      }, 1000);
+    }
+  }, [room, role]);
+
+  // Host: Overall Game Phase Progression (with exactly-once guard)
+  const handleNextQuestion = useCallback(() => {
+    if (!room || role !== 'HOST' || hostNextLockRef.current) return;
+    hostNextLockRef.current = true;
+    try {
+      const nextIdx = room.currentQuestionIndex + 1;
+      if (nextIdx < room.quiz.questions.length) {
+        const updated = realtime.updatePhase(room.roomCode, 'QUESTION', nextIdx);
+        if (updated) setRoom(updated);
+      } else {
+        const updated = realtime.endGame(room.roomCode);
+        if (updated) setRoom(updated);
+      }
+    } finally {
+      setTimeout(() => {
+        hostNextLockRef.current = false;
+      }, 800);
+    }
+  }, [room, role]);
+
+  const nextLockRef = useRef<{ [key: string]: boolean }>({});
+
+  // Student: Per-student independent question advancement (with exactly-once guard)
+  const handleStudentNextQuestion = useCallback(() => {
+    if (!room || !player || room.phase === 'FINISHED') return;
+    const currentQIdx = player.currentQuestionIndex || 0;
+    const lockKey = `${room.roomCode}_${player.id}_q${currentQIdx}`;
+
+    if (nextLockRef.current[lockKey]) {
+      return; // Lock against double-fire
+    }
+    nextLockRef.current[lockKey] = true;
+
     const updatedRoom = realtime.advancePlayerQuestion(room.roomCode, player.id);
     if (updatedRoom) setRoom(updatedRoom);
-  };
+  }, [room, player]);
+
+  // Student: Battle Action Modal Close handler with semantic reason
+  const handleBattleModalClose = useCallback(
+    (reason?: 'COMPLETE' | 'CANCEL' | 'FOCUS_MODE') => {
+      setShowPowerUpModal(false);
+      setPlayer((prev) => (prev ? { ...prev, unlockedPowerUp: null } : null));
+
+      if (room && player) {
+        const updated = realtime.clearPlayerPowerUp(room.roomCode, player.id);
+        if (updated) setRoom(updated);
+      }
+
+      if (reason === 'COMPLETE' && room?.phase !== 'FINISHED') {
+        handleStudentNextQuestion();
+      }
+    },
+    [room, player, handleStudentNextQuestion]
+  );
 
   // Student: Unfreeze player when freeze timer expires
   const handleUnfreezePlayer = () => {
-    if (!room || !player) return;
+    if (!room || !player || room.phase === 'FINISHED') return;
     const updatedRoom = realtime.unfreezePlayer(room.roomCode, player.id);
     if (updatedRoom) setRoom(updatedRoom);
   };
 
   // Student: Submit Answer (Updates both Live Match Score & Persistent Student Wallet Coins)
   const handleAnswerSubmit = (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => {
-    if (!room || !player) return { scoreEarned: 0, coinsEarned: 0 };
+    if (!room || !player || room.phase === 'FINISHED') return { scoreEarned: 0, coinsEarned: 0 };
 
     // Anti-Guessing ("Lô tô đáp án") Check: If student answers under 2 seconds, trigger 10s freeze!
     if (timeSpentSec < 2) {
@@ -416,7 +500,7 @@ export function App() {
 
   // Student: Send Question Inquiry to Teacher
   const handleSendInquiry = (questionNumber: number, question: Question) => {
-    if (!room || !player) return;
+    if (!room || !player || room.phase === 'FINISHED') return;
     const updatedRoom = realtime.submitStudentInquiry(room.roomCode, player.id, questionNumber, question);
     if (updatedRoom) setRoom(updatedRoom);
   };
@@ -430,7 +514,7 @@ export function App() {
 
   // Execute Player Power-Up Action with Controlled Battle Engine Validation
   const handleExecutePowerUp = (targetId: string, powerUpType: PowerUpType) => {
-    if (!room || !player) return null;
+    if (!room || !player || room.phase === 'FINISHED') return null;
 
     const sessionState = room.battleSessionState || createInitialBattleState();
     const opponents = Object.values(room.players);
@@ -473,12 +557,24 @@ export function App() {
     }
   }, [player?.unlockedPowerUp]);
 
-  // Teacher: Send Gift / Power-Up Reward to Students
-  const handleSendTeacherGift = (targetId: string, powerUpType: PowerUpType, giftTitle: string) => {
-    if (!room) return;
-    const updatedRoom = realtime.grantTeacherReward(room.roomCode, targetId, powerUpType, giftTitle);
-    if (updatedRoom) setRoom(updatedRoom);
-  };
+  const sendTeacherGiftLockRef = useRef<boolean>(false);
+
+  // Teacher: Send Gift / Power-Up Reward to Students (with exactly-once guard)
+  const handleSendTeacherGift = useCallback(
+    (targetId: string, powerUpType: PowerUpType, giftTitle: string) => {
+      if (!room || role !== 'HOST' || sendTeacherGiftLockRef.current) return;
+      sendTeacherGiftLockRef.current = true;
+      try {
+        const updatedRoom = realtime.grantTeacherReward(room.roomCode, targetId, powerUpType, giftTitle);
+        if (updatedRoom) setRoom(updatedRoom);
+      } finally {
+        setTimeout(() => {
+          sendTeacherGiftLockRef.current = false;
+        }, 500);
+      }
+    },
+    [room, role]
+  );
 
   // Save new custom quiz into localStorage persistently!
   const handleSaveQuiz = (newQuiz: Quiz) => {
@@ -800,27 +896,28 @@ export function App() {
       );
     }
 
-    if (room.phase === 'QUESTION') {
+    if (room.phase === 'QUESTION' || room.phase === 'FINISHED') {
       // Ensure student has shuffled questions initialized
       if (!player.shuffledQuestions || player.shuffledQuestions.length === 0) {
         const shuffled = shuffleStudentQuestions(room.quiz.questions);
         realtime.initializePlayerQuestions(room.roomCode, player.id, shuffled);
       }
 
+      const isRoomFinished = room.phase === 'FINISHED';
       const questionsList = player.shuffledQuestions || room.quiz.questions;
       const currentQIdx = player.currentQuestionIndex || 0;
-      const isFinished = player.isFinished || currentQIdx >= questionsList.length;
+      const isFinished = isRoomFinished || player.isFinished || currentQIdx >= (questionsList.length || 1);
 
       const opponents = Object.values(room.players);
 
       if (isFinished) {
-        const totalCount = questionsList.length;
+        const totalCount = questionsList.length || room.quiz?.questions?.length || 1;
         const correctCount = player.correctCount || 0;
         const accuracyPct = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
         const studentWallet = StudentWalletService.getWallet(player.id, player.name);
 
         return (
-          <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative">
+          <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center relative font-sans">
             <StudentAlertModal
               alertEvent={room.latestTeacherAlert}
               giftEvent={room.latestTeacherGift}
@@ -829,13 +926,15 @@ export function App() {
 
             <div className="w-full max-w-2xl bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 shadow-2xl text-center space-y-6 animate-fade-in mb-8">
               <div className="w-20 h-20 bg-emerald-500/20 border-2 border-emerald-400 rounded-full flex items-center justify-center text-4xl mx-auto shadow-lg shadow-emerald-500/20">
-                🎉
+                {isRoomFinished ? '🏁' : '🎉'}
               </div>
               <h2 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-emerald-400 to-teal-300">
-                Chúc Mừng Bạn Đã Hoàn Thành Bài Thi!
+                {isRoomFinished ? 'Bài Thi Đã Kết Thúc!' : 'Chúc Mừng Bạn Đã Hoàn Thành Bài Thi!'}
               </h2>
               <p className="text-sm text-slate-300 font-medium">
-                Bạn đã trả lời hết tất cả câu hỏi. Dưới đây là kết quả của bạn và Bảng Xếp Hạng trực tiếp!
+                {isRoomFinished
+                  ? 'Giáo viên đã kết thúc bài thi cho toàn phòng. Dưới đây là kết quả của bạn và Bảng Xếp Hạng cuối cùng!'
+                  : 'Bạn đã trả lời hết tất cả câu hỏi. Dưới đây là kết quả của bạn và Bảng Xếp Hạng trực tiếp!'}
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
@@ -871,10 +970,17 @@ export function App() {
               <LiveLeaderboard
                 players={room.players}
                 attacks={room.attacks}
-                isFinal={false}
-                totalQuestions={room.quiz?.questions?.length || 5}
+                isFinal={true}
+                totalQuestions={totalCount}
               />
             </div>
+
+            <button
+              onClick={handleResetHome}
+              className="mt-8 px-8 py-3 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-2xl shadow-lg transition-transform active:scale-95 cursor-pointer"
+            >
+              Rời Phòng / Trở Về Trang Chủ
+            </button>
           </div>
         );
       }
@@ -921,15 +1027,7 @@ export function App() {
             powerUpType={player.unlockedPowerUp}
             battleSessionState={room.battleSessionState}
             onExecutePowerUp={handleExecutePowerUp}
-            onClose={() => {
-              setShowPowerUpModal(false);
-              setPlayer((prev) => (prev ? { ...prev, unlockedPowerUp: null } : null));
-              if (room && player) {
-                const updated = realtime.clearPlayerPowerUp(room.roomCode, player.id);
-                if (updated) setRoom(updated);
-              }
-            }}
-            onNextQuestion={handleStudentNextQuestion}
+            onClose={handleBattleModalClose}
           />
 
           <StudentAlertModal
@@ -940,28 +1038,6 @@ export function App() {
         </div>
       );
     }
-
-    return (
-      <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center justify-center">
-        <StudentAlertModal
-          alertEvent={room.latestTeacherAlert}
-          giftEvent={room.latestTeacherGift}
-          currentPlayerId={player.id}
-        />
-        <LiveLeaderboard
-          players={room.players}
-          attacks={room.attacks}
-          isFinal={room.phase === 'FINISHED'}
-          totalQuestions={room.quiz?.questions?.length || 5}
-        />
-        <button
-          onClick={handleResetHome}
-          className="mt-8 px-8 py-3 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-2xl shadow-lg"
-        >
-          Trở Về Trang Chủ
-        </button>
-      </div>
-    );
   }
 
   // ==================== RENDER: TEACHER HOST FLOW ====================
@@ -1064,12 +1140,7 @@ export function App() {
                 <Megaphone className="w-4 h-4 animate-bounce" /> 📢 Gửi Cảnh Báo Lớp
               </button>
               <button
-                onClick={() => {
-                  if (confirm('Bạn có chắc chắn muốn kết thúc bài thi cho tất cả học sinh không?')) {
-                    const updated = realtime.updatePhase(room.roomCode, 'FINISHED');
-                    if (updated) setRoom(updated);
-                  }
-                }}
+                onClick={handleEndGame}
                 className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs rounded-2xl shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-transform active:scale-95 cursor-pointer"
               >
                 🏁 KẾT THÚC BÀI THI

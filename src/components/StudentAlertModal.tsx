@@ -77,11 +77,13 @@ const ALERT_STYLE_CONFIG: Record<TeacherAlertEvent['alertType'], AlertStyle> = {
 
 const DEFAULT_ALERT_STYLE: AlertStyle = ALERT_STYLE_CONFIG.CUSTOM;
 
-// Helper: Target validation
-const isEventForPlayer = (targetId: string, currentPlayerId?: string): boolean => {
-  if (!targetId || targetId === 'ALL') return true;
+// Helper: Strict Target validation (Requirement 10)
+const isEventForPlayer = (targetId?: string | null, currentPlayerId?: string): boolean => {
+  if (!targetId || typeof targetId !== 'string' || targetId.trim() === '') return false;
+  const cleanTarget = targetId.trim();
+  if (cleanTarget === 'ALL') return true;
   if (!currentPlayerId) return false;
-  return String(targetId).trim() === String(currentPlayerId).trim();
+  return cleanTarget === String(currentPlayerId).trim();
 };
 
 // Helper: Safe date formatting

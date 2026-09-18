@@ -49,8 +49,7 @@ interface BattleActionModalProps {
     stolenPoints: number;
     mysteryBonus?: number;
   } | null;
-  onClose: () => void;
-  onNextQuestion?: () => void;
+  onClose: (reason?: 'COMPLETE' | 'CANCEL' | 'FOCUS_MODE') => void;
 }
 
 export const BattleActionModal: React.FC<BattleActionModalProps> = ({
@@ -61,7 +60,6 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   battleSessionState,
   onExecutePowerUp,
   onClose,
-  onNextQuestion,
 }) => {
   const [step, setStep] = useState<BattleStep>('UNBOX_CHEST');
   const [activePowerUp, setActivePowerUp] = useState<PowerUpType | null>(null);
@@ -73,28 +71,38 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   const executionLockRef = useRef<boolean>(false);
   const hasFinishedRef = useRef<boolean>(false);
   const autoCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const chestTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isOpenRef = useRef<boolean>(isOpen);
   const prevIsOpenRef = useRef<boolean>(false);
 
-  // Unified finish handler: exactly once execution for onClose & onNextQuestion
-  const finishRewardFlow = useCallback(() => {
-    if (hasFinishedRef.current) return;
-    hasFinishedRef.current = true;
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
-    if (autoCloseTimerRef.current) {
-      clearTimeout(autoCloseTimerRef.current);
-      autoCloseTimerRef.current = null;
-    }
+  // Unified finish handler: exactly once execution with semantic reason
+  const finishRewardFlow = useCallback(
+    (reason: 'COMPLETE' | 'CANCEL' | 'FOCUS_MODE' = 'COMPLETE') => {
+      if (hasFinishedRef.current) return;
+      hasFinishedRef.current = true;
 
-    onClose();
-    if (onNextQuestion) {
-      onNextQuestion();
-    }
-  }, [onClose, onNextQuestion]);
+      if (chestTimerRef.current) {
+        clearTimeout(chestTimerRef.current);
+        chestTimerRef.current = null;
+      }
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = null;
+      }
 
-  // Auto-close if Focus Mode is activated by teacher
+      onClose(reason);
+    },
+    [onClose]
+  );
+
+  // Auto-close with FOCUS_MODE reason if Focus Mode is activated by teacher
   useEffect(() => {
     if (isOpen && battleSessionState?.focusModeActive) {
-      finishRewardFlow();
+      finishRewardFlow('FOCUS_MODE');
     }
   }, [isOpen, battleSessionState?.focusModeActive, finishRewardFlow]);
 
@@ -193,6 +201,9 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
     prevIsOpenRef.current = isOpen;
 
     return () => {
+      if (chestTimerRef.current) {
+        clearTimeout(chestTimerRef.current);
+      }
       if (autoCloseTimerRef.current) {
         clearTimeout(autoCloseTimerRef.current);
       }
@@ -208,7 +219,12 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
       soundManager.playShield();
     } catch {}
 
-    setTimeout(() => {
+    if (chestTimerRef.current) {
+      clearTimeout(chestTimerRef.current);
+    }
+
+    chestTimerRef.current = setTimeout(() => {
+      if (!isOpenRef.current || hasFinishedRef.current) return;
       try {
         soundManager.playCorrect();
       } catch {}
@@ -242,7 +258,7 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
         setStep('SELECT_POWERUP');
       }
     }, 1300);
-  }, [step, powerUpType, attacker.id, opponents, battleSessionState, executePowerUp]); // Clean dependencies: ONLY isOpen and powerUpType!
+  }, [step, powerUpType, attacker.id, opponents, battleSessionState, executePowerUp]);
 
   const handleSelectRewardCard = useCallback(
     (type: PowerUpType) => {
@@ -261,13 +277,13 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
   );
 
   const handleFinishAndNext = useCallback(() => {
-    finishRewardFlow();
+    finishRewardFlow('COMPLETE');
   }, [finishRewardFlow]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen && !isExecuting) {
-        finishRewardFlow();
+        finishRewardFlow('CANCEL');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -283,7 +299,7 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
       aria-labelledby="battle-modal-title"
       onClick={() => {
         if (step === 'SELECT_POWERUP' && !isExecuting) {
-          onClose();
+          finishRewardFlow('CANCEL');
         }
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-lg animate-fade-in font-sans"
@@ -293,7 +309,8 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
         className="relative w-full max-w-2xl max-h-[90dvh] overflow-y-auto custom-scrollbar bg-slate-900 border-2 border-amber-500/50 rounded-3xl p-4 sm:p-6 shadow-2xl text-center"
       >
         <button
-          onClick={onClose}
+          type="button"
+          onClick={() => finishRewardFlow('CANCEL')}
           className="absolute top-4 right-4 z-30 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-colors cursor-pointer"
           title="Đóng cửa sổ"
         >

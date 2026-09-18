@@ -3,13 +3,27 @@ import { TeacherAccount, TeacherAccountStatus } from '../types';
 const STORAGE_TEACHER_ACCOUNTS = 'chibi_quiz_teacher_accounts_v1';
 const STORAGE_CURRENT_TEACHER = 'chibi_quiz_current_teacher_v1';
 
+/**
+ * Deterministic password hash helper to avoid storing plain text passwords
+ */
+export function hashPassword(pass: string): string {
+  if (!pass) return '';
+  let hash = 0;
+  for (let i = 0; i < pass.length; i++) {
+    const char = pass.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return `h_${Math.abs(hash).toString(36)}_${pass.length}`;
+}
+
 // Pre-seeded sample approved account only in DEV environment
 const INITIAL_TEACHER_ACCOUNTS: TeacherAccount[] = import.meta.env.DEV
   ? [
       {
         id: 'teacher-sample-1',
         email: 'giaovien@gmail.com',
-        password: '123',
+        password: hashPassword('123'),
         fullName: 'Thầy Vương (Giáo viên mẫu)',
         schoolName: 'THPT Chuyên',
         status: 'APPROVED',
@@ -59,10 +73,11 @@ export class TeacherAuthService {
       return { success: false, message: 'Email này đã được đăng ký trên hệ thống!' };
     }
 
+    const hashedPass = hashPassword(pass);
     const newAccount: TeacherAccount = {
       id: `teacher-${Math.random().toString(36).substring(2, 9)}`,
       email: cleanEmail,
-      password: pass,
+      password: hashedPass,
       fullName: fullName.trim() || 'Giáo viên',
       schoolName: schoolName?.trim() || 'Trường THPT',
       status: 'PENDING',
@@ -87,7 +102,10 @@ export class TeacherAuthService {
   ): { success: boolean; message: string; account?: TeacherAccount } {
     const cleanEmail = email.trim().toLowerCase();
     const accounts = this.getAccounts();
-    const account = accounts.find((a) => a.email.toLowerCase() === cleanEmail && a.password === pass);
+    const hashedPass = hashPassword(pass);
+    const account = accounts.find(
+      (a) => a.email.toLowerCase() === cleanEmail && (a.password === hashedPass || a.password === pass)
+    );
 
     if (!account) {
       return { success: false, message: 'Mật khẩu hoặc thông tin tài khoản không chính xác!' };
