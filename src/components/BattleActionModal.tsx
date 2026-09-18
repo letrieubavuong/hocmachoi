@@ -345,11 +345,13 @@ export const BattleActionModal: React.FC<BattleActionModalProps> = ({
             validTargets={validTargets}
             selectedTargetId={selectedTargetId}
             isExecuting={isExecuting}
+            isPreAssignedPowerUp={!!powerUpType}
             onSelectTarget={(id) => setSelectedTargetId(id)}
             onExecute={(id) => executePowerUp(activePowerUp, id)}
+            onSkip={() => finishRewardFlow('COMPLETE')}
             onBack={() => {
               if (powerUpType) {
-                onClose();
+                finishRewardFlow('CANCEL');
               } else {
                 setStep('SELECT_POWERUP');
                 setActivePowerUp(null);
@@ -485,21 +487,27 @@ const PowerUpSelectionView: React.FC<{
 };
 
 /* Sub-Component 2: TargetSelectorView */
-const TargetSelectorView: React.FC<{
+interface TargetSelectorViewProps {
   activePowerUp: PowerUpType;
   validTargets: Player[];
   selectedTargetId: string | null;
   isExecuting: boolean;
+  isPreAssignedPowerUp?: boolean;
   onSelectTarget: (id: string) => void;
   onExecute: (targetId: string) => void;
+  onSkip?: () => void;
   onBack: () => void;
-}> = ({
+}
+
+const TargetSelectorView: React.FC<TargetSelectorViewProps> = ({
   activePowerUp,
   validTargets,
   selectedTargetId,
   isExecuting,
+  isPreAssignedPowerUp,
   onSelectTarget,
   onExecute,
+  onSkip,
   onBack,
 }) => {
   const meta = POWER_UP_CONFIG[activePowerUp] || POWER_UP_CONFIG.ATTACK;
@@ -526,14 +534,23 @@ const TargetSelectorView: React.FC<{
       {validTargets.length === 0 ? (
         <div className="py-8 space-y-4">
           <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 text-slate-300 text-sm font-semibold max-w-md mx-auto">
-            Hiện chưa có đối thủ phù hợp khác trong phòng để nhắm tới!
+            Hiện chưa có đối thủ phù hợp khác trong phòng để nhắm tới (đối thủ đã bật khiên hoặc không hợp lệ)!
           </div>
-          <button
-            onClick={onBack}
-            className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-sm rounded-xl shadow-lg cursor-pointer"
-          >
-            Quay lại chọn phần thưởng khác
-          </button>
+          {isPreAssignedPowerUp ? (
+            <button
+              onClick={onSkip || onBack}
+              className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-base rounded-2xl shadow-lg cursor-pointer"
+            >
+              BỎ QUA VẬT PHẨM NÀY & TIẾP TỤC ➔
+            </button>
+          ) : (
+            <button
+              onClick={onBack}
+              className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-sm rounded-xl shadow-lg cursor-pointer"
+            >
+              Quay lại chọn phần thưởng khác
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -701,7 +718,7 @@ const BattleResultView: React.FC<{
           TIẾP TỤC ➔
         </button>
         <p className="text-[11px] text-slate-400 font-medium animate-pulse">
-          (Tự động tiếp tục sau 1s...)
+          (Tự động tiếp tục sau 2s...)
         </p>
       </div>
     </div>

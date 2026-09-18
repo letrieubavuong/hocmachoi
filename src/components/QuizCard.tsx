@@ -150,12 +150,12 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     return () => clearInterval(interval);
   }, [player?.isFrozen, player?.freezeUntil, onUnfreeze]);
 
-  // Auto Next Trigger
+  // Auto Next Trigger (Only when no reward modal is active)
   const triggerAutoNext = () => {
-    if (onAutoNext) {
+    if (onAutoNext && !player?.unlockedPowerUp) {
       if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current);
       autoNextTimerRef.current = setTimeout(() => {
-        if (!autoNextFiredRef.current) {
+        if (!autoNextFiredRef.current && !player?.unlockedPowerUp) {
           autoNextFiredRef.current = true;
           onAutoNext();
         }

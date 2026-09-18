@@ -223,6 +223,7 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
     >
       {current.kind === 'GIFT' ? (
         <StudentGiftCard
+          key={current.id}
           notification={current}
           totalInQueue={totalInQueue}
           onDismiss={handleDismissCurrent}
@@ -231,6 +232,7 @@ export const StudentAlertModal: React.FC<StudentAlertModalProps> = React.memo(({
         />
       ) : (
         <StudentAlertCard
+          key={current.id}
           notification={current}
           totalInQueue={totalInQueue}
           onDismiss={handleDismissCurrent}
@@ -343,6 +345,28 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
   const isForClass = event.targetId === 'ALL';
   const [chestState, setChestState] = useState<'CLOSED' | 'OPENING' | 'REVEALED'>('CLOSED');
 
+  const revealTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const failSafeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const ackLockRef = useRef<boolean>(false);
+
+  // Reset state and clear timers cleanly when notification.id changes
+  useEffect(() => {
+    setChestState('CLOSED');
+    ackLockRef.current = false;
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    if (failSafeTimerRef.current) {
+      clearTimeout(failSafeTimerRef.current);
+      failSafeTimerRef.current = null;
+    }
+    return () => {
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      if (failSafeTimerRef.current) clearTimeout(failSafeTimerRef.current);
+    };
+  }, [notification.id]);
+
   // Determine the rolled reward assigned for THIS student
   const rolledType: PowerUpType = useMemo(() => {
     if (event.rewardMap && currentPlayerId && event.rewardMap[currentPlayerId]) {
@@ -359,18 +383,29 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
 
     try {
       soundManager.playShield();
-    } catch {
-      // Audio playback catch
-    }
+    } catch {}
 
-    setTimeout(() => {
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    revealTimerRef.current = setTimeout(() => {
       setChestState('REVEALED');
       try {
         soundManager.playCorrect();
-      } catch {
-        // Audio playback catch
-      }
+      } catch {}
     }, 1300);
+
+    // Fail-safe 2.5s timer: force REVEALED state if animation/audio gets stuck
+    if (failSafeTimerRef.current) clearTimeout(failSafeTimerRef.current);
+    failSafeTimerRef.current = setTimeout(() => {
+      setChestState((prev) => (prev === 'OPENING' ? 'REVEALED' : prev));
+    }, 2500);
+  };
+
+  const handleDismiss = () => {
+    if (ackLockRef.current) return;
+    ackLockRef.current = true;
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    if (failSafeTimerRef.current) clearTimeout(failSafeTimerRef.current);
+    onDismiss();
   };
 
   return (
@@ -379,23 +414,28 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
       aria-modal="true"
       aria-labelledby="student-gift-title"
       aria-describedby="student-gift-desc"
-      className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-gradient-to-b from-yellow-950 via-slate-900 to-purple-950 border-2 border-yellow-400/80 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-5 text-center relative overflow-hidden motion-reduce:animate-none"
+      className="w-full max-w-lg max-h-[85dvh] overflow-y-auto bg-gradient-to-b from-yellow-950 via-slate-900 to-purple-950 border-2 border-yellow-400/80 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-5 text-center relative font-sans motion-reduce:animate-none custom-scrollbar"
     >
+      {/* Decorative Background Layer */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-3xl">
+        <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-80 h-80 bg-yellow-500/10 rounded-full blur-3xl" />
+      </div>
+
       {/* Queue Counter Badge */}
       {totalInQueue > 1 && (
-        <div className="absolute top-3 right-4 px-2.5 py-0.5 rounded-full bg-yellow-500/20 border border-yellow-400/40 text-[10px] font-black text-yellow-300">
+        <div className="absolute top-3 right-4 px-2.5 py-0.5 rounded-full bg-yellow-500/20 border border-yellow-400/40 text-[10px] font-black text-yellow-300 z-10">
           Thông báo 1 / {totalInQueue}
         </div>
       )}
 
       {/* Top Tag Header */}
-      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md bg-yellow-500/20 text-yellow-300 border-yellow-400/50 mx-auto mt-1">
+      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md bg-yellow-500/20 text-yellow-300 border-yellow-400/50 mx-auto mt-1 relative z-10">
         <Sparkles className="w-4 h-4 text-yellow-400 animate-spin" />
         <span>🎉 GIÁO VIÊN VỪA TẶNG RƯƠNG THƯỞNG!</span>
       </div>
 
       {chestState === 'CLOSED' && (
-        <div className="space-y-5 py-2 animate-fade-in">
+        <div className="space-y-5 py-2 animate-fade-in relative z-10">
           {/* Closed Mystery Chest Visual */}
           <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
             <div className="absolute inset-0 bg-yellow-500/30 rounded-full blur-2xl animate-pulse" />
@@ -427,7 +467,7 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
       )}
 
       {chestState === 'OPENING' && (
-        <div className="py-6 space-y-4 text-center animate-fade-in">
+        <div className="py-6 space-y-4 text-center animate-fade-in relative z-10">
           <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
             <div className="absolute inset-0 bg-yellow-400/40 rounded-full blur-2xl animate-ping" />
             <div className="w-24 h-24 bg-gradient-to-tr from-yellow-400 via-amber-500 to-pink-500 border-4 border-yellow-200 rounded-3xl flex items-center justify-center text-5xl shadow-2xl animate-bounce">
@@ -444,7 +484,7 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
       )}
 
       {chestState === 'REVEALED' && (
-        <div className="space-y-5 py-1 animate-scale-up">
+        <div className="space-y-5 py-1 animate-scale-up relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider shadow-md bg-emerald-500/20 text-emerald-300 border-emerald-400/50 mx-auto">
             <Sparkles className="w-4 h-4 text-emerald-400" />
             <span>🎉 BẠN ĐÃ MỞ RƯƠNG THÀNH CÔNG!</span>
@@ -468,7 +508,7 @@ const StudentGiftCard: React.FC<StudentGiftCardProps> = ({
 
           <button
             ref={buttonRef}
-            onClick={onDismiss}
+            onClick={handleDismiss}
             className="w-full min-h-[48px] py-3.5 px-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-base sm:text-lg rounded-2xl shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer focus:outline-none focus:ring-4 focus:ring-emerald-400/50"
           >
             <CheckCircle className="w-5 h-5 text-slate-950 flex-shrink-0" />
