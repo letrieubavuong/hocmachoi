@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Question, Player } from '../types';
+import { Question, Player, StudentAnswer } from '../types';
 import { soundManager } from '../services/audio';
 import { MathRenderer } from './MathRenderer';
 import { getRankTier } from '../data/rankAssets';
@@ -17,7 +17,7 @@ interface QuizCardProps {
   totalQuestions: number;
   player?: Player;
   battleSessionState?: BattleSessionState;
-  onAnswerSubmit: (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => { scoreEarned?: number; coinsEarned?: number } | void;
+  onAnswerSubmit: (answer: StudentAnswer, timeSpentSec: number) => { scoreEarned?: number; coinsEarned?: number } | void;
   onAutoNext?: () => void;
   onUnfreeze?: () => void;
   onSendInquiry?: (questionNumber: number, question: Question) => void;
@@ -175,7 +175,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   };
 
   // Core Evaluation & Submission
-  const processSubmission = (isCorrect: boolean, selectedIdx: number) => {
+  const processSubmission = (isCorrect: boolean, answer: StudentAnswer) => {
     // Calculate exact elapsed seconds from high-precision timestamp
     const elapsedSecs = Math.max(1, Math.round((performance.now() - startTimeRef.current) / 1000));
 
@@ -196,7 +196,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       setLastEarnedCoins(null);
     }
 
-    const res = onAnswerSubmit(selectedIdx, isCorrect, elapsedSecs);
+    const res = onAnswerSubmit(answer, elapsedSecs);
     if (res && typeof res.coinsEarned === 'number') {
       setLastEarnedCoins(res.coinsEarned);
     } else {
@@ -214,7 +214,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setSelectedOption(index);
 
     const isCorrect = index === question.correctIndex;
-    processSubmission(isCorrect, index);
+    processSubmission(isCorrect, { type: 'MULTIPLE_CHOICE', selectedIndex: index });
   };
 
   const submitTFAnswers = (selectionsToUse: Record<number, boolean>) => {
@@ -237,7 +237,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     });
 
     const isCorrect = correctCount === question.options.length;
-    processSubmission(isCorrect, 0);
+    processSubmission(isCorrect, { type: 'TRUE_FALSE', selections: selectionsToUse });
   };
 
   // Toggle True/False Selection
@@ -260,7 +260,7 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setIsAnswered(true);
 
     const isCorrect = evaluateShortAnswer(shortInput, question.shortAnswerText || '');
-    processSubmission(isCorrect, 0);
+    processSubmission(isCorrect, { type: 'SHORT_ANSWER', text: shortInput });
   };
 
   // Inquiry handler

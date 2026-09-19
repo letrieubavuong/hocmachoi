@@ -36,6 +36,11 @@ export interface Question {
   explanation?: string;
 }
 
+export type StudentAnswer =
+  | { type: 'MULTIPLE_CHOICE'; selectedIndex: number }
+  | { type: 'TRUE_FALSE'; selections: Record<number, boolean> }
+  | { type: 'SHORT_ANSWER'; text: string };
+
 export interface Quiz {
   id: string;
   title: string;
@@ -88,6 +93,7 @@ export interface Player {
   isBombed?: boolean;
   unlockedPowerUp?: PowerUpType | null;
   processedEventIds?: string[];
+  answeredQuestionIds?: string[];
   protectedUntilRound?: number;
   lastTargetId?: string;
   battleAttacksUsedThisRound?: number;
@@ -104,6 +110,7 @@ export interface Player {
   isTabActive?: boolean;
   lastTabSwitchTime?: number;
   currentQuestionIndex?: number;
+  currentQuestionStartedAt?: number;
   totalAnswered?: number;
   correctCount?: number;
   shuffledQuestions?: Question[];

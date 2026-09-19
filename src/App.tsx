@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount, BattleSessionState } from './types';
+import { GameRoom, Player, Quiz, Question, ChibiCustomization, PowerUpType, TeacherAccount, StudentAnswer } from './types';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { getRandomChibi } from './data/chibiAssets';
 import { realtime } from './services/realtime';
@@ -106,6 +106,13 @@ export function App() {
   // Student: Anti-Cheat Tab Switch & Window Focus Monitor
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [showTabWarningToast, setShowTabWarningToast] = useState(false);
+  const activeRoomCode = room?.roomCode;
+  const activeRoomPhase = room?.phase;
+  const activeQuizQuestions = room?.quiz.questions;
+  const activePlayerId = player?.id;
+  const activePlayerName = player?.name;
+  const activeStudentCode = player?.studentCode;
+  const activeShuffledCount = player?.shuffledQuestions?.length;
 
   useEffect(() => {
     if (role !== 'PLAYER' || !room?.roomCode || !player?.id) return;
@@ -195,9 +202,9 @@ export function App() {
 
   // Subscribe to real-time updates when inside a room
   useEffect(() => {
-    if (!room?.roomCode) return;
+    if (!activeRoomCode) return;
 
-    const unsubscribe = realtime.subscribe(room.roomCode, (updatedRoom) => {
+    const unsubscribe = realtime.subscribe(activeRoomCode, (updatedRoom) => {
       setRoom(updatedRoom);
 
       if (updatedRoom.phase === 'FINISHED') {
@@ -207,11 +214,11 @@ export function App() {
       }
 
       // Keep local player state synced (match by player.id or name fallback for restored players)
-      if (role === 'PLAYER' && player) {
+      if (role === 'PLAYER' && activePlayerId) {
         const syncedPlayer =
-          updatedRoom.players[player.id] ||
-          (player.studentCode
-            ? Object.values(updatedRoom.players).find((p) => p.studentCode && p.studentCode.trim() === player.studentCode?.trim())
+          updatedRoom.players[activePlayerId] ||
+          (activeStudentCode
+            ? Object.values(updatedRoom.players).find((p) => p.studentCode && p.studentCode.trim() === activeStudentCode.trim())
             : undefined);
 
         if (syncedPlayer) {
@@ -237,7 +244,22 @@ export function App() {
     });
 
     return () => unsubscribe();
-  }, [room?.roomCode, player?.id, player?.name, role]);
+  }, [activeRoomCode, activePlayerId, activePlayerName, activeStudentCode, role]);
+
+  // Initialize the per-student question order as an effect, never during render.
+  useEffect(() => {
+    if (
+      role !== 'PLAYER' ||
+      !activeRoomCode ||
+      !activePlayerId ||
+      activeRoomPhase !== 'QUESTION' ||
+      !activeQuizQuestions ||
+      activeShuffledCount
+    ) {
+      return;
+    }
+    realtime.initializePlayerQuestions(activeRoomCode, activePlayerId, shuffleStudentQuestions(activeQuizQuestions));
+  }, [role, activeRoomCode, activeRoomPhase, activeQuizQuestions, activePlayerId, activeShuffledCount]);
 
   const removePlayerLockRef = useRef<boolean>(false);
 
@@ -427,18 +449,13 @@ export function App() {
   };
 
   // Student: Submit Answer (Updates both Live Match Score & Persistent Student Wallet Coins)
-  const handleAnswerSubmit = (selectedIndex: number, isCorrect: boolean, timeSpentSec: number) => {
+  const handleAnswerSubmit = (answer: StudentAnswer, timeSpentSec: number) => {
     if (!room || !player || room.phase === 'FINISHED') return { scoreEarned: 0, coinsEarned: 0 };
-
-    // Anti-Guessing ("Lô tô đáp án") Check: If student answers under 2 seconds, trigger 10s freeze!
-    if (timeSpentSec < 2) {
-      const reason = '⚠️ CẢNH BÁO LÔ TÔ ĐÁP ÁN: Bạn chọn quá nhanh (dưới 2s)! Hệ thống tự động đóng băng 10 giây để bạn đọc kỹ câu hỏi.';
-      const frozenRoom = realtime.freezePlayer(room.roomCode, player.id, 10, reason);
-      if (frozenRoom) setRoom(frozenRoom);
-    }
 
     const questionsList = player.shuffledQuestions || room.quiz.questions;
     const currentQ = questionsList[player.currentQuestionIndex || 0];
+    const isCorrect = realtime.evaluateAnswer(currentQ, answer);
+
     let scoreToAdd = 0;
     if (isCorrect && currentQ) {
       const scoreResult = calculateAnswerScore({
@@ -451,7 +468,7 @@ export function App() {
       scoreToAdd = scoreResult.totalEarned;
     }
 
-    const updatedRoom = realtime.updatePlayerStats(room.roomCode, player.id, scoreToAdd, isCorrect, timeSpentSec);
+    const updatedRoom = realtime.submitAnswer(room.roomCode, player.id, answer, timeSpentSec);
     if (updatedRoom) setRoom(updatedRoom);
 
     // Calculate & Credit Coin Economy (Persistent Student Wallet)
@@ -466,34 +483,6 @@ export function App() {
 
     const transactionKey = `${room.roomCode}_q${currentQ?.id || player.currentQuestionIndex || 0}_${player.id}`;
     StudentWalletService.creditCoins(player.id, player.name, transactionKey, coinReward);
-
-    // Controlled Battle Mode Progression
-    if (room.battleSessionState && !room.battleSessionState.focusModeActive) {
-      const qUntil = Math.max(0, (room.battleSessionState.questionsUntilBattle || 5) - 1);
-      if (qUntil === 0 && room.battleSessionState.battleEnabled) {
-        soundManager.playCorrect();
-        const durationSec = 10;
-        const battleEndTime = Date.now() + durationSec * 1000;
-
-        realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) => ({
-          ...(prev || createInitialBattleState()),
-          currentPhase: 'BATTLE',
-          questionsUntilBattle: 0,
-          battleEndTimestamp: battleEndTime,
-        }));
-
-        setTimeout(() => {
-          realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) =>
-            BattleEngine.advanceRound(prev || createInitialBattleState())
-          );
-        }, durationSec * 1000);
-      } else {
-        realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) => ({
-          ...(prev || createInitialBattleState()),
-          questionsUntilBattle: qUntil,
-        }));
-      }
-    }
 
     return { scoreEarned: scoreToAdd, coinsEarned: coinReward.totalCoins };
   };
@@ -539,12 +528,6 @@ export function App() {
 
     const resolvedTargetId = validation.resolvedTargetId || targetId;
     const result = realtime.executePowerUp(room.roomCode, player.id, resolvedTargetId, powerUpType);
-
-    if (result?.success) {
-      realtime.updateBattleSessionState(room.roomCode, (prev?: BattleSessionState) =>
-        BattleEngine.registerAttackResult(prev || sessionState, player.id, resolvedTargetId)
-      );
-    }
 
     setPlayer((prev) => (prev ? { ...prev, unlockedPowerUp: null } : null));
     return result;
@@ -897,12 +880,6 @@ export function App() {
     }
 
     if (room.phase === 'QUESTION' || room.phase === 'FINISHED') {
-      // Ensure student has shuffled questions initialized
-      if (!player.shuffledQuestions || player.shuffledQuestions.length === 0) {
-        const shuffled = shuffleStudentQuestions(room.quiz.questions);
-        realtime.initializePlayerQuestions(room.roomCode, player.id, shuffled);
-      }
-
       const isRoomFinished = room.phase === 'FINISHED';
       const questionsList = player.shuffledQuestions || room.quiz.questions;
       const currentQIdx = player.currentQuestionIndex || 0;

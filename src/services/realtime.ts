@@ -1,6 +1,7 @@
-import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent, BattleSessionState, BattleMode } from '../types';
+import { GameRoom, Player, Quiz, Question, GamePhase, AttackEvent, PowerUpType, TeacherAlertEvent, TeacherGiftEvent, StudentInquiryEvent, BattleSessionState, BattleMode, StudentAnswer } from '../types';
 import { PowerUpEngine } from './powerUpEngine';
-import { setFocusModeState, setBattleModeState } from './battleEngine';
+import { BattleEngine, createInitialBattleState, setFocusModeState, setBattleModeState } from './battleEngine';
+import { calculateAnswerScore, evaluateShortAnswer } from '../utils/scoring';
 import Peer, { DataConnection } from 'peerjs';
 
 const CHANNEL_NAME = 'chibi_quiz_realtime';
@@ -11,11 +12,15 @@ export class RealtimeService {
   private channel: BroadcastChannel | null = null;
   private listeners: Array<(room: GameRoom) => void> = [];
   private currentRoomCode: string | null = null;
+  private isHost = false;
+  private roomCache: Map<string, GameRoom> = new Map();
 
   // PeerJS Cross-Device Engine
   private peer: Peer | null = null;
   private connections: Map<string, DataConnection> = new Map();
+  private connectionPlayers: Map<string, string> = new Map();
   private hostConnection: DataConnection | null = null;
+  private pendingHostMessages: Array<Record<string, unknown>> = [];
 
   constructor() {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -46,6 +51,7 @@ export class RealtimeService {
 
   // Host: Create a new room
   public createRoom(quiz: Quiz, hostId: string): GameRoom {
+    this.isHost = true;
     const roomCode = Math.floor(100000 + Math.random() * 900000).toString();
     const room: GameRoom = {
       roomCode,
@@ -95,10 +101,21 @@ export class RealtimeService {
                 };
               } else {
                 finalPlayer = {
-                  ...incomingPlayer,
+                  id: incomingPlayer.id,
+                  studentCode: incomingPlayer.studentCode,
+                  name: String(incomingPlayer.name || 'Học sinh').trim().slice(0, 80),
+                  chibi: incomingPlayer.chibi,
+                  score: 0,
+                  streak: 0,
+                  shieldActive: false,
+                  shieldCount: 0,
+                  isReady: true,
+                  joinedAt: Date.now(),
                   isTabActive: true,
                 };
               }
+
+              this.connectionPlayers.set(conn.peer, finalPlayer.id);
 
               const updatedRoom: GameRoom = {
                 ...currentRoom,
@@ -106,31 +123,38 @@ export class RealtimeService {
                 updatedAt: Date.now(),
               };
               this.saveAndBroadcast(updatedRoom);
-              this.broadcastToPeerClients(updatedRoom);
             }
-          } else if (data?.type === 'SUBMIT_ANSWER') {
-            this.updatePlayerStats(roomCode, data.playerId, data.scoreToAdd, data.isCorrect);
+            return;
+          }
+
+          const boundPlayerId = this.connectionPlayers.get(conn.peer);
+          if (!boundPlayerId) return;
+
+          if (data?.type === 'SUBMIT_ANSWER') {
+            this.submitAnswer(roomCode, boundPlayerId, data.answer, data.timeSpentSec);
           } else if (data?.type === 'INIT_QUESTIONS') {
-            this.initializePlayerQuestions(roomCode, data.playerId, data.shuffledQuestions);
+            this.initializePlayerQuestions(roomCode, boundPlayerId, data.shuffledQuestions);
           } else if (data?.type === 'ADVANCE_QUESTION') {
-            this.advancePlayerQuestion(roomCode, data.playerId);
+            this.advancePlayerQuestion(roomCode, boundPlayerId);
           } else if (data?.type === 'EXECUTE_ATTACK') {
-            this.executePowerUp(roomCode, data.attackerId, data.targetId, data.powerUpType);
+            this.executePowerUp(roomCode, boundPlayerId, data.targetId, data.powerUpType);
           } else if (data?.type === 'TAB_STATUS_UPDATE') {
-            this.updatePlayerTabStatus(roomCode, data.playerId, data.isTabActive, data.tabSwitchCount);
-          } else if (data?.type === 'REMOVE_PLAYER') {
-            this.removePlayer(roomCode, data.playerId);
+            this.updatePlayerTabStatus(roomCode, boundPlayerId, Boolean(data.isTabActive), Number(data.tabSwitchCount) || 0);
+          } else if (data?.type === 'FREEZE_PLAYER') {
+            this.freezePlayer(roomCode, boundPlayerId, data.durationSec, data.reason);
+          } else if (data?.type === 'UNFREEZE_PLAYER') {
+            this.unfreezePlayer(roomCode, boundPlayerId);
+          } else if (data?.type === 'SUBMIT_INQUIRY') {
+            this.submitStudentInquiry(roomCode, boundPlayerId, data.questionNumber, data.question, data.note);
+          } else if (data?.type === 'CLEAR_POWER_UP') {
+            this.clearPlayerPowerUp(roomCode, boundPlayerId);
           }
         });
 
         conn.on('close', () => {
           this.connections.delete(conn.peer);
+          this.connectionPlayers.delete(conn.peer);
         });
-
-        const currentRoom = this.getRoom(roomCode);
-        if (currentRoom) {
-          conn.send({ type: 'ROOM_UPDATE', room: currentRoom });
-        }
       });
     } catch (e) {
       console.warn('PeerJS init error:', e);
@@ -139,6 +163,7 @@ export class RealtimeService {
 
   // Student: Join Room
   public joinRoom(roomCode: string, player: Player): GameRoom | null {
+    this.isHost = false;
     this.currentRoomCode = roomCode;
     let room = this.getRoom(roomCode);
 
@@ -153,12 +178,12 @@ export class RealtimeService {
 
         conn.on('open', () => {
           conn.send({ type: 'JOIN_PLAYER', player });
+          this.flushHostMessages();
         });
 
         conn.on('data', (data: any) => {
           if (data?.type === 'ROOM_UPDATE' && data.room) {
-            this.saveLocalOnly(data.room);
-            this.notifyListeners(data.room);
+            this.saveClientRoom(data.room);
           }
         });
       });
@@ -186,7 +211,7 @@ export class RealtimeService {
 
       const updatedPlayers = { ...room.players, [playerToUse.id]: playerToUse };
       room = { ...room, players: updatedPlayers, updatedAt: Date.now() };
-      this.saveAndBroadcast(room);
+      this.saveClientRoom(room);
       return room;
     }
 
@@ -208,7 +233,7 @@ export class RealtimeService {
       updatedAt: Date.now(),
     };
 
-    this.saveLocalOnly(placeholderRoom);
+    this.saveClientRoom(placeholderRoom);
     return placeholderRoom;
   }
 
@@ -272,15 +297,31 @@ export class RealtimeService {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
 
+    if (!this.isHost) {
+      this.sendToHost({ type: 'INIT_QUESTIONS', shuffledQuestions });
+      return room;
+    }
+
     const player = room.players[playerId];
     if (player.shuffledQuestions && player.shuffledQuestions.length > 0) {
       return room;
     }
 
+    const canonicalById = new Map(room.quiz.questions.map((question) => [question.id, question]));
+    const requestedIds = shuffledQuestions.map((question) => question.id);
+    const isValidPermutation =
+      requestedIds.length === room.quiz.questions.length &&
+      new Set(requestedIds).size === room.quiz.questions.length &&
+      requestedIds.every((id) => canonicalById.has(id));
+    const safeQuestions = isValidPermutation
+      ? requestedIds.map((id) => canonicalById.get(id)!)
+      : [...room.quiz.questions];
+
     const updatedPlayer: Player = {
       ...player,
-      shuffledQuestions,
+      shuffledQuestions: safeQuestions,
       currentQuestionIndex: 0,
+      currentQuestionStartedAt: Date.now(),
       totalAnswered: 0,
       correctCount: 0,
       isFinished: false,
@@ -296,17 +337,68 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
+    return updatedRoom;
+  }
 
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'INIT_QUESTIONS',
-        playerId,
-        shuffledQuestions,
-      });
+  public evaluateAnswer(question: Question | undefined, answer: StudentAnswer): boolean {
+    if (!question || !answer) return false;
+    const type = question.type || 'MULTIPLE_CHOICE';
+    if (type === 'MULTIPLE_CHOICE' && answer.type === 'MULTIPLE_CHOICE') {
+      return Number.isInteger(answer.selectedIndex) && answer.selectedIndex === question.correctIndex;
+    }
+    if (type === 'TRUE_FALSE' && answer.type === 'TRUE_FALSE' && Array.isArray(question.tfAnswers)) {
+      return question.tfAnswers.length === question.options.length &&
+        question.tfAnswers.every((expected, index) => answer.selections[index] === expected);
+    }
+    if (type === 'SHORT_ANSWER' && answer.type === 'SHORT_ANSWER') {
+      return evaluateShortAnswer(answer.text, question.shortAnswerText || '');
+    }
+    return false;
+  }
+
+  public submitAnswer(
+    roomCode: string,
+    playerId: string,
+    answer: StudentAnswer,
+    timeSpentSec: number
+  ): GameRoom | null {
+    const room = this.getRoom(roomCode);
+    const player = room?.players[playerId];
+    if (!room || !player || room.phase === 'FINISHED' || player.isFinished) return null;
+
+    if (!this.isHost) {
+      this.sendToHost({ type: 'SUBMIT_ANSWER', answer, timeSpentSec });
+      return room;
     }
 
-    return updatedRoom;
+    const questions = player.shuffledQuestions || room.quiz.questions;
+    const question = questions[player.currentQuestionIndex || 0];
+    if (!question || player.answeredQuestionIds?.includes(question.id)) return room;
+
+    const reportedTime = Math.min(3600, Math.max(1, Number(timeSpentSec) || 1));
+    const hostElapsed = player.currentQuestionStartedAt
+      ? Math.max(1, Math.floor((Date.now() - player.currentQuestionStartedAt) / 1000))
+      : 1;
+    const safeTime = Math.max(reportedTime, hostElapsed);
+    const isCorrect = this.evaluateAnswer(question, answer);
+    const score = calculateAnswerScore({
+      basePoints: question.points || 100,
+      timeSpentSec: safeTime,
+      isCorrect,
+      streak: player.streak,
+      doublePointsActive: false,
+    }).totalEarned;
+
+    if (safeTime < 2) {
+      this.freezePlayer(
+        roomCode,
+        playerId,
+        10,
+        '⚠️ CẢNH BÁO LÔ TÔ ĐÁP ÁN: Bạn chọn quá nhanh (dưới 2s)! Hệ thống tự động đóng băng 10 giây để bạn đọc kỹ câu hỏi.'
+      );
+    }
+
+    return this.updatePlayerStats(roomCode, playerId, score, isCorrect, safeTime, question.id);
   }
 
   // Update Player Stats with PowerUp Engine Evaluation
@@ -315,7 +407,8 @@ export class RealtimeService {
     playerId: string,
     deltaScore: number,
     isCorrect: boolean,
-    timeSpentSec: number = 10
+    timeSpentSec: number = 10,
+    questionId?: string
   ): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
@@ -331,8 +424,8 @@ export class RealtimeService {
       timeSpentSec,
     });
 
-    let newShieldActive = player.shieldActive;
-    let newShieldCount = player.shieldCount;
+    const newShieldActive = player.shieldActive;
+    const newShieldCount = player.shieldCount;
     let unlockedPowerUp: PowerUpType | null = null;
 
     // 2. Award new power-up reward ONLY on streak milestones (Streak 2, 5, 8, 11...)
@@ -349,10 +442,8 @@ export class RealtimeService {
         isHomework
       );
 
-      if (unlockedPowerUp === 'SHIELD') {
-        newShieldActive = true;
-        newShieldCount += 1;
-      }
+      // The reward is only activated after the student opens/uses the card.
+      // Applying SHIELD here as well would grant it twice.
     }
 
     // 3. Reset consumed single-use buffs
@@ -366,12 +457,13 @@ export class RealtimeService {
       oracle5050Active: false,
       rocketBoostActive: false,
       streakGuardActive: false,
-      isFrozen: false,
-      freezeUntil: undefined,
       isBombed: false,
       unlockedPowerUp,
       totalAnswered: (player.totalAnswered || 0) + 1,
       correctCount: (player.correctCount || 0) + (isCorrect ? 1 : 0),
+      answeredQuestionIds: questionId
+        ? [...(player.answeredQuestionIds || []), questionId]
+        : player.answeredQuestionIds,
     };
 
     const updatedRoom: GameRoom = {
@@ -384,16 +476,7 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
-
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'SUBMIT_ANSWER',
-        playerId,
-        scoreToAdd: deltaScore,
-        isCorrect,
-      });
-    }
+    this.progressBattleAfterAnswer(roomCode);
 
     return updatedRoom;
   }
@@ -402,6 +485,11 @@ export class RealtimeService {
   public advancePlayerQuestion(roomCode: string, playerId: string): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
+
+    if (!this.isHost) {
+      this.sendToHost({ type: 'ADVANCE_QUESTION' });
+      return room;
+    }
 
     const player = room.players[playerId];
     const totalQ = player.shuffledQuestions?.length || room.quiz.questions.length;
@@ -412,6 +500,7 @@ export class RealtimeService {
     const updatedPlayer: Player = {
       ...player,
       currentQuestionIndex: nextQIdx,
+      currentQuestionStartedAt: Date.now(),
       isFinished,
     };
 
@@ -425,8 +514,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
-
     return updatedRoom;
   }
 
@@ -439,6 +526,11 @@ export class RealtimeService {
   ): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
+
+    if (!this.isHost) {
+      this.sendToHost({ type: 'TAB_STATUS_UPDATE', isTabActive, tabSwitchCount });
+      return room;
+    }
 
     const player = room.players[playerId];
     const updatedPlayer: Player = {
@@ -458,17 +550,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
-
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'TAB_STATUS_UPDATE',
-        playerId,
-        isTabActive,
-        tabSwitchCount,
-      });
-    }
-
     return updatedRoom;
   }
 
@@ -501,7 +582,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
 
     return updatedRoom;
   }
@@ -611,7 +691,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
 
     return updatedRoom;
   }
@@ -651,15 +730,33 @@ export class RealtimeService {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[attackerId]) return null;
 
+    const attackerForValidation = room.players[attackerId];
+    if (attackerForValidation.unlockedPowerUp !== powerUpType) return null;
+
+    const sessionState = room.battleSessionState || createInitialBattleState();
+    const validation = BattleEngine.validateAttack({
+      attackerId,
+      targetId,
+      powerUpType,
+      sessionState,
+      opponents: Object.values(room.players),
+    });
+    if (!validation.valid) return null;
+    const validatedTargetId = validation.resolvedTargetId || targetId;
+
+    if (!this.isHost) {
+      this.sendToHost({ type: 'EXECUTE_ATTACK', targetId: validatedTargetId, powerUpType });
+    }
+
     const attacker = room.players[attackerId];
-    const target = room.players[targetId] || attacker;
+    const target = room.players[validatedTargetId] || attacker;
 
     let blocked = false;
     let stolenPoints = 0;
     let mysteryBonus = 0;
 
-    let updatedAttacker = { ...attacker, unlockedPowerUp: null };
-    let updatedTarget = { ...target };
+    const updatedAttacker = { ...attacker, unlockedPowerUp: null };
+    const updatedTarget = { ...target };
 
     // Check Shield / Reflect Shield on Target for Offensive Attacks
     if (target.id !== attacker.id && (target.reflectShieldActive || target.shieldActive)) {
@@ -730,7 +827,7 @@ export class RealtimeService {
     const updatedPlayers = {
       ...room.players,
       [attackerId]: updatedAttacker,
-      ...(targetId !== attackerId ? { [targetId]: updatedTarget } : {}),
+      ...(validatedTargetId !== attackerId ? { [validatedTargetId]: updatedTarget } : {}),
     };
 
     const updatedRoom: GameRoom = {
@@ -740,8 +837,17 @@ export class RealtimeService {
       updatedAt: Date.now(),
     };
 
-    this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
+    if (this.isHost) {
+      const withBattleState: GameRoom = {
+        ...updatedRoom,
+        battleSessionState: BattleEngine.isBattlePowerUp(powerUpType)
+          ? BattleEngine.registerAttackResult(sessionState, attackerId, validatedTargetId)
+          : sessionState,
+      };
+      this.saveAndBroadcast(withBattleState);
+    } else {
+      this.saveClientRoom(updatedRoom);
+    }
 
     return {
       success: true,
@@ -768,8 +874,8 @@ export class RealtimeService {
       updatedAt: Date.now(),
     };
 
+    if (!this.isHost) return room;
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
     return updatedRoom;
   }
 
@@ -787,7 +893,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
 
     if (this.hostConnection && this.hostConnection.open) {
       this.hostConnection.send({
@@ -809,10 +914,16 @@ export class RealtimeService {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
 
+    if (!this.isHost) {
+      this.sendToHost({ type: 'FREEZE_PLAYER', durationSec, reason });
+      return room;
+    }
+
     const player = room.players[playerId];
     const updatedPlayer: Player = {
       ...player,
       isFrozen: true,
+      freezeUntil: Date.now() + Math.max(1, durationSec) * 1000,
       freezeReason: reason || '⚠️ CẢNH BÁO LÔ TÔ ĐÁP ÁN: Bạn chọn quá nhanh (dưới 2s)! Đóng băng 10s.',
       rapidGuessCount: (player.rapidGuessCount || 0) + 1,
     };
@@ -827,22 +938,13 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
-
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'FREEZE_PLAYER',
-        playerId,
-        durationSec,
-        reason,
-      });
-    }
 
     return updatedRoom;
   }
 
   // Host: Reconnect Host Peer after F5 page refresh
   public reconnectHost(roomCode: string): GameRoom | null {
+    this.isHost = true;
     this.currentRoomCode = roomCode;
     this.initHostPeer(roomCode);
     return this.getRoom(roomCode);
@@ -850,8 +952,9 @@ export class RealtimeService {
 
   // Student: Reconnect Student Peer after F5 page refresh
   public reconnectStudent(roomCode: string, player: Player): GameRoom | null {
+    this.isHost = false;
     this.currentRoomCode = roomCode;
-    let room = this.getRoom(roomCode);
+    const room = this.getRoom(roomCode);
     try {
       if (this.peer) this.peer.destroy();
       this.peer = new Peer();
@@ -863,12 +966,12 @@ export class RealtimeService {
 
         conn.on('open', () => {
           conn.send({ type: 'JOIN_PLAYER', player });
+          this.flushHostMessages();
         });
 
         conn.on('data', (data: any) => {
           if (data?.type === 'ROOM_UPDATE' && data.room) {
-            this.saveLocalOnly(data.room);
-            this.notifyListeners(data.room);
+            this.saveClientRoom(data.room);
           }
         });
       });
@@ -883,12 +986,19 @@ export class RealtimeService {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
 
+    if (!this.isHost) {
+      this.sendToHost({ type: 'UNFREEZE_PLAYER' });
+      return room;
+    }
+
     const player = room.players[playerId];
     if (!player.isFrozen) return room;
 
     const updatedPlayer: Player = {
       ...player,
       isFrozen: false,
+      freezeUntil: undefined,
+      freezeReason: undefined,
     };
 
     const updatedRoom: GameRoom = {
@@ -901,7 +1011,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
     return updatedRoom;
   }
 
@@ -915,6 +1024,11 @@ export class RealtimeService {
   ): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
+
+    if (!this.isHost) {
+      this.sendToHost({ type: 'SUBMIT_INQUIRY', questionNumber, question, note });
+      return room;
+    }
 
     const player = room.players[playerId];
     const inquiryEvent: StudentInquiryEvent = {
@@ -944,14 +1058,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
-
-    if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'SUBMIT_INQUIRY',
-        inquiry: inquiryEvent,
-      });
-    }
 
     return updatedRoom;
   }
@@ -977,7 +1083,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
     return updatedRoom;
   }
 
@@ -985,6 +1090,11 @@ export class RealtimeService {
   public clearPlayerPowerUp(roomCode: string, playerId: string): GameRoom | null {
     const room = this.getRoom(roomCode);
     if (!room || !room.players[playerId]) return null;
+
+    if (!this.isHost) {
+      this.sendToHost({ type: 'CLEAR_POWER_UP' });
+      return room;
+    }
 
     const player = room.players[playerId];
     if (!player.unlockedPowerUp) return room;
@@ -1004,7 +1114,6 @@ export class RealtimeService {
     };
 
     this.saveAndBroadcast(updatedRoom);
-    this.broadcastToPeerClients(updatedRoom);
     return updatedRoom;
   }
 
@@ -1017,6 +1126,8 @@ export class RealtimeService {
   }
 
   public getRoom(roomCode: string): GameRoom | null {
+    const cached = this.roomCache.get(roomCode);
+    if (cached) return cached;
     if (typeof window === 'undefined') return null;
     const data = localStorage.getItem(`${STORAGE_KEY_PREFIX}${roomCode}`);
     if (!data) return null;
@@ -1041,19 +1152,63 @@ export class RealtimeService {
     };
   }
 
-  private saveLocalOnly(room: GameRoom) {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}${room.roomCode}`, JSON.stringify(room));
+  private saveClientRoom(room: GameRoom) {
+    this.roomCache.set(room.roomCode, room);
+    this.notifyListeners(room);
   }
 
   private saveAndBroadcast(room: GameRoom) {
     if (typeof window === 'undefined') return;
+    this.roomCache.set(room.roomCode, room);
     localStorage.setItem(`${STORAGE_KEY_PREFIX}${room.roomCode}`, JSON.stringify(room));
     if (this.channel) {
       this.channel.postMessage(room);
     }
     this.notifyListeners(room);
     this.broadcastToPeerClients(room);
+  }
+
+  private sendToHost(message: Record<string, unknown>): boolean {
+    if (!this.hostConnection?.open) {
+      this.pendingHostMessages.push(message);
+      return false;
+    }
+    this.hostConnection.send(message);
+    return true;
+  }
+
+  private flushHostMessages(): void {
+    if (!this.hostConnection?.open) return;
+    const queued = this.pendingHostMessages.splice(0);
+    queued.forEach((message) => this.hostConnection?.send(message));
+  }
+
+  private progressBattleAfterAnswer(roomCode: string): void {
+    if (!this.isHost) return;
+    const room = this.getRoom(roomCode);
+    const state = room?.battleSessionState;
+    if (!room || !state || state.focusModeActive || !state.battleEnabled || state.currentPhase !== 'QUIZ') return;
+
+    const remaining = Math.max(0, (state.questionsUntilBattle || 5) - 1);
+    if (remaining > 0) {
+      this.updateBattleSessionState(roomCode, { ...state, questionsUntilBattle: remaining });
+      return;
+    }
+
+    const durationMs = 10_000;
+    this.updateBattleSessionState(roomCode, {
+      ...state,
+      currentPhase: 'BATTLE',
+      questionsUntilBattle: 0,
+      battleEndTimestamp: Date.now() + durationMs,
+    });
+
+    window.setTimeout(() => {
+      const latest = this.getRoom(roomCode);
+      if (latest?.battleSessionState?.currentPhase === 'BATTLE') {
+        this.updateBattleSessionState(roomCode, BattleEngine.advanceRound(latest.battleSessionState));
+      }
+    }, durationMs);
   }
 
   private notifyListeners(room: GameRoom) {

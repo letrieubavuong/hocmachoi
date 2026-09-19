@@ -72,7 +72,7 @@ export function validateQuizImport(content: string): {
       const points = typeof q.points === 'number' && q.points >= 10 ? q.points : 100;
       const explanation = typeof q.explanation === 'string' ? q.explanation : undefined;
 
-      let normalizedQ: Question = {
+      const normalizedQ: Question = {
         id: qId,
         type: qType,
         questionText: qText,

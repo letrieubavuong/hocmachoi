@@ -143,7 +143,12 @@ export const TeacherAuthPanel: React.FC<TeacherAuthPanelProps> = ({ onLoginSucce
 
     try {
       const inputPass = adminPassInput.trim();
-      const expectedPass = import.meta.env.VITE_ADMIN_PASSCODE || 'admin123';
+      const expectedPass = import.meta.env.VITE_ADMIN_PASSCODE;
+
+      if (!expectedPass) {
+        setAdminError('Chức năng Admin chưa được cấu hình. Hãy đặt VITE_ADMIN_PASSCODE cho môi trường chạy cục bộ.');
+        return;
+      }
 
       if (expectedPass && inputPass === expectedPass) {
         setIsAdminAuthenticated(true);

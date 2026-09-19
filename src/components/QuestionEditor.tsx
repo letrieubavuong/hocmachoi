@@ -64,7 +64,7 @@ export function convertQuestionType(question: Question, nextType: QuestionType):
       }
       const validOpts = existingOpts.slice(0, 4).map((opt, idx) => opt || `Lựa chọn ${String.fromCharCode(65 + idx)}`);
 
-      let correctIdx = typeof question.correctIndex === 'number' && question.correctIndex >= 0 && question.correctIndex < 4
+      const correctIdx = typeof question.correctIndex === 'number' && question.correctIndex >= 0 && question.correctIndex < 4
         ? question.correctIndex
         : 0;
 

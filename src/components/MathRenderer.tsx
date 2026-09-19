@@ -168,9 +168,7 @@ export function parseMathParts(text: string): MathPart[] {
 }
 
 export const MathRenderer: React.FC<MathRendererProps> = React.memo(({ text, className = '' }) => {
-  if (!text) return null;
-
-  const parts = useMemo(() => parseMathParts(text), [text]);
+  const parts = useMemo(() => parseMathParts(text || ''), [text]);
 
   const hasBlockOrTikz = useMemo(
     () => parts.some((p) => p.type === 'block' || p.type === 'tikz'),
@@ -178,6 +176,8 @@ export const MathRenderer: React.FC<MathRendererProps> = React.memo(({ text, cla
   );
 
   const ContainerTag = hasBlockOrTikz ? 'div' : 'span';
+
+  if (!text) return null;
 
   return (
     <ContainerTag className={`math-renderer ${hasBlockOrTikz ? 'block' : 'inline-wrap'} ${className}`}>
